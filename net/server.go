@@ -53,7 +53,7 @@ func (serverHandle *serverHandle) ConnectionActive(conn net.Conn) {
 
 	// create a new session object for the connection
 	// and record it's IP address
-	var sess SessionBase
+	var sess Session
 	host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
 	if err != nil {
 		log.Error("cannot get remote address:", err)

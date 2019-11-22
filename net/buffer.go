@@ -16,7 +16,7 @@ type Buffer struct {
 }
 
 // packet sending procedure
-func (buf *Buffer) send(sess *SessionBase, data []byte) {
+func (buf *Buffer) send(sess *Session, data []byte) {
 	// in case of empty packet
 	if data == nil {
 		return

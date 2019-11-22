@@ -1,7 +1,6 @@
 package net
 
 import (
-	gp "google.golang.org/grpc"
 	"net"
 	"time"
 )
@@ -13,7 +12,11 @@ const (
 	SESS_AUTHORIZED = 0x8 // 已授权访问
 )
 
-type SessionBase struct {
+type SessionData interface {
+	Destroy()
+}
+
+type Session struct {
 	IP   net.IP
 	Addr string // game需要的数据
 	//Encoder *rc4.Cipher                 // 加密器
@@ -37,4 +40,13 @@ type SessionBase struct {
 	// RPS控制
 	PacketCount     uint32 // 对收到的包进行计数，避免恶意发包
 	PacketCount1Min int    // 每分钟的包统计，用于RPM判断
+	data            SessionData
+}
+
+func (s *Session) SetSessionData(data SessionData) {
+	s.data = data
+}
+
+func (s *Session) GetSessionData() SessionData {
+	return s.data
 }
