@@ -15,6 +15,14 @@ var (
 	die = make(chan struct{})
 )
 
+func SigDone() {
+	wg.Done()
+}
+
+func SigAdd() {
+	wg.Add(1)
+}
+
 // handle unix signals
 func SigHandler(exit func()) {
 	defer utils.PrintPanicStack()
