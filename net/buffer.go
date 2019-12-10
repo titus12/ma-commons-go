@@ -16,7 +16,7 @@ type Buffer struct {
 }
 
 // packet sending procedure
-func (buf *Buffer) send(sess *Session, data []byte) {
+func (buf *Buffer) Send(sess *Session, data []byte) {
 	// in case of empty packet
 	if data == nil {
 		return
@@ -52,7 +52,7 @@ func (buf *Buffer) start() {
 	for {
 		select {
 		case data := <-buf.pending:
-			buf.rawSend(data)
+			buf.RawSend(data)
 		case <-buf.ctrl: // receive session end signal
 			//close(buf.pending)
 			return
@@ -61,7 +61,7 @@ func (buf *Buffer) start() {
 }
 
 // raw packet encapsulation and put it online
-func (buf *Buffer) rawSend(data []byte) bool {
+func (buf *Buffer) RawSend(data []byte) bool {
 	// combine output to reduce syscall.write
 	sz := len(data)
 	binary.BigEndian.PutUint16(buf.cache, uint16(sz))
@@ -78,7 +78,7 @@ func (buf *Buffer) rawSend(data []byte) bool {
 }
 
 // create a associated write buffer for a session
-func newBuffer(conn net.Conn, ctrl chan struct{}, txqueuelen int) *Buffer {
+func NewBuffer(conn net.Conn, ctrl chan struct{}, txqueuelen int) *Buffer {
 	buf := Buffer{conn: conn}
 	buf.pending = make(chan []byte, txqueuelen)
 	buf.ctrl = ctrl

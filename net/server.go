@@ -24,22 +24,22 @@ type Config struct {
 	Nodelay, Interval, Resend, NC int
 }
 
-type ConnectionHandle func(session *SessionBase, in chan []byte, out *Buffer)
+type ConnectionHandler func(session *Session, in chan []byte, out *Buffer)
 
 //type ConnectionHandle interface {
 //	ConnectionHandle(session *SessionBase, in chan []byte, out *Buffer)
 //}
 
-type serverHandle struct {
-	config     *Config
-	connHandle ConnectionHandle
+type serverHandler struct {
+	config      *Config
+	connHandler ConnectionHandler
 }
 
-func NewServerHandle(cfg *Config, connectionHandle ConnectionHandle) *serverHandle {
-	return &serverHandle{config: cfg, connHandle: connectionHandle}
+func NewServerHandle(cfg *Config, connectionHandler ConnectionHandler) *serverHandler {
+	return &serverHandler{config: cfg, connHandler: connectionHandler}
 }
 
-func (serverHandle *serverHandle) ConnectionActive(conn net.Conn) {
+func (serverHandler *serverHandler) ConnectionActive(conn net.Conn) {
 	defer utils.PrintPanicStack()
 	defer conn.Close()
 
@@ -70,20 +70,23 @@ func (serverHandle *serverHandle) ConnectionActive(conn net.Conn) {
 	sess.Die = make(chan struct{})
 
 	// create a write buffer
-	out := newBuffer(conn, sess.Die, serverHandle.config.Txqueuelen)
+	out := newBuffer(conn, sess.Die, serverHandler.config.Txqueuelen)
 	go out.start()
 
 	// start agent for PACKET processing
-	wg.Add(1)
-	handle := serverHandle.connHandle
-	go handle(&sess, in, out)
+	SigAdd()
+	go func() {
+		defer SigDone() // will decrease waitgroup by one, useful for manual server shutdown
+		defer utils.PrintPanicStack()
+		serverHandler.connHandler(&sess, in, out)
+	}()
 
 	// read loop
 	for {
 		// solve dead link problem:
 		// physical disconnection without any communcation between client and server
 		// will cause the read to block FOREVER, so a timeout is a rescue.
-		conn.SetReadDeadline(time.Now().Add(serverHandle.config.ReadDeadline))
+		conn.SetReadDeadline(time.Now().Add(serverHandler.config.ReadDeadline))
 
 		// read 2B header
 		n, err := io.ReadFull(conn, header)
@@ -118,8 +121,8 @@ func checkError(err error) {
 	}
 }
 
-func (serverHandle *serverHandle) StartTcpServer() error {
-	config := serverHandle.config
+func (serverHandler *serverHandler) StartTcpServer() error {
+	config := serverHandler.config
 	// resolve address & start listening
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", config.Listen)
 	if err != nil {
@@ -144,12 +147,12 @@ func (serverHandle *serverHandle) StartTcpServer() error {
 		// set socket write buffer
 		conn.SetWriteBuffer(config.Sockbuf)
 		// start a goroutine for every incoming connection for reading
-		go serverHandle.ConnectionActive(conn)
+		go serverHandler.ConnectionActive(conn)
 	}
 }
 
-func (serverHandle *serverHandle) StartUdpServer() error {
-	config := serverHandle.config
+func (serverHandler *serverHandler) StartUdpServer() error {
+	config := serverHandler.config
 	l, err := kcp.Listen(config.Listen)
 	if err != nil {
 		return err

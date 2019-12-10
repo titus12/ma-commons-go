@@ -12,7 +12,7 @@ import (
 var (
 	wg sync.WaitGroup
 	// server close signal
-	die = make(chan struct{})
+	Die = make(chan struct{})
 )
 
 func SigDone() {
@@ -34,7 +34,7 @@ func SigHandler(exit func()) {
 		switch msg {
 		case syscall.SIGTERM:
 			exit()
-			close(die)
+			close(Die)
 			log.Info("sigterm received")
 			log.Info("waiting for server close, please wait...")
 			wg.Wait()

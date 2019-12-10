@@ -12,7 +12,7 @@ const (
 	SESS_AUTHORIZED = 0x8 // 已授权访问
 )
 
-type SessionData interface {
+type SessionDataBase interface {
 	Destroy()
 }
 
@@ -40,13 +40,13 @@ type Session struct {
 	// RPS控制
 	PacketCount     uint32 // 对收到的包进行计数，避免恶意发包
 	PacketCount1Min int    // 每分钟的包统计，用于RPM判断
-	data            SessionData
+	data            SessionDataBase
 }
 
-func (s *Session) SetSessionData(data SessionData) {
+func (s *Session) SetSessionData(data SessionDataBase) {
 	s.data = data
 }
 
-func (s *Session) GetSessionData() SessionData {
+func (s *Session) GetSessionData() SessionDataBase {
 	return s.data
 }
