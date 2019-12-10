@@ -1,8 +1,8 @@
 package crypto
 
 import (
-	"crypto/cipher"
-	"crypto/des"
+	cipher "crypto/cipher"
+	des "crypto/des"
 	"errors"
 )
 
