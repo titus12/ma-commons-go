@@ -1,4 +1,4 @@
-module ma-commons-go
+module github.com/titus12/ma-commons-go
 
 go 1.13
 
