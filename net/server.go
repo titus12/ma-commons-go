@@ -3,9 +3,9 @@ package net
 import (
 	"encoding/binary"
 	log "github.com/sirupsen/logrus"
+	"github.com/titus12/ma-commons-go/utils"
 	"github.com/xtaci/kcp-go"
 	"io"
-	"ma-commons-go/utils"
 	"net"
 	"os"
 	"time"

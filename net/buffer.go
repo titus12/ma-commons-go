@@ -3,8 +3,8 @@ package net
 import (
 	"encoding/binary"
 	log "github.com/sirupsen/logrus"
-	"ma-commons-go/crypto"
-	"ma-commons-go/utils"
+	"github.com/titus12/ma-commons-go/crypto"
+	"github.com/titus12/ma-commons-go/utils"
 	"net"
 )
 

@@ -2,7 +2,7 @@ package net
 
 import (
 	log "github.com/sirupsen/logrus"
-	"ma-commons-go/utils"
+	"github.com/titus12/ma-commons-go/utils"
 	"os"
 	"os/signal"
 	"sync"
