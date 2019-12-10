@@ -70,7 +70,7 @@ func (serverHandler *serverHandler) ConnectionActive(conn net.Conn) {
 	sess.Die = make(chan struct{})
 
 	// create a write buffer
-	out := newBuffer(conn, sess.Die, serverHandler.config.Txqueuelen)
+	out := NewBuffer(conn, sess.Die, serverHandler.config.Txqueuelen)
 	go out.start()
 
 	// start agent for PACKET processing
@@ -184,6 +184,6 @@ func (serverHandler *serverHandler) StartUdpServer() error {
 		conn.SetMtu(config.MTU)
 
 		// start a goroutine for every incoming connection for reading
-		go serverHandle.ConnectionActive(conn)
+		go serverHandler.ConnectionActive(conn)
 	}
 }
