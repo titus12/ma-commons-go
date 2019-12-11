@@ -35,7 +35,7 @@ type serverHandler struct {
 	connHandler ConnectionHandler
 }
 
-func NewServerHandle(cfg *Config, connectionHandler ConnectionHandler) *serverHandler {
+func NewServerHandler(cfg *Config, connectionHandler ConnectionHandler) *serverHandler {
 	return &serverHandler{config: cfg, connHandler: connectionHandler}
 }
 
