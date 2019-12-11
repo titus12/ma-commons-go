@@ -1,4 +1,4 @@
-package crypto
+package cryptos
 
 import (
 	cipher "crypto/cipher"

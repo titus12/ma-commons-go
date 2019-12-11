@@ -26,7 +26,7 @@
  *
  * 6. Alice and Bob now share a secret (the number 2) because 6 × 15 is the same as 15 × 6
  */
-package crypto
+package cryptos
 
 import (
 	"math"

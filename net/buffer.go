@@ -3,7 +3,7 @@ package net
 import (
 	"encoding/binary"
 	log "github.com/sirupsen/logrus"
-	"github.com/titus12/ma-commons-go/crypto"
+	"github.com/titus12/ma-commons-go/cryptos"
 	"github.com/titus12/ma-commons-go/utils"
 	"net"
 )
@@ -27,7 +27,7 @@ func (buf *Buffer) Send(sess *Session, data []byte) {
 	if sess.Flag&SESS_ENCRYPT != 0 { // encryption is enabled
 		//sess.Encoder.XORKeyStream(data, data)
 		var err error
-		data, err = crypto.Encrypt(data, sess.CryptoKey)
+		data, err = cryptos.Encrypt(data, sess.CryptoKey)
 		if err != nil {
 			log.WithFields(log.Fields{"user_id": sess.UserId, "ip": sess.IP}).Errorf("des.Encrypt error %v", err)
 			return
