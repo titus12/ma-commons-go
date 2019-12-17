@@ -53,17 +53,17 @@ func (p *ProtocolNumber) getName(id int32) string {
 	return p.ids[id]
 }
 
-func Load(msg descriptor.Message) error {
+func LoadProtocol(msg descriptor.Message) error {
 	if msg == nil {
 		return nil
 	}
 	return protocolNumber.load(msg)
 }
 
-func GetId(name string) int32 {
+func GetProtocolId(name string) int32 {
 	return protocolNumber.getId(name)
 }
 
-func GetName(id int32) string {
+func GetProtocolName(id int32) string {
 	return protocolNumber.getName(id)
 }
