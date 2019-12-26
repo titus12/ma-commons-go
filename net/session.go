@@ -22,7 +22,7 @@ type Session struct {
 	//Encoder *rc4.Cipher                 // 加密器
 	//Decoder *rc4.Cipher                 // 解密器
 	CryptoKey []byte // des 密钥
-	UserId    uint32 // 玩家ID
+	UserId    int32  // 玩家ID
 	//GSID      string // 游戏服ID;e.g.: game1,game2
 	//MQ   chan interface{} // 返回给客户端的异步消息
 	//Stream    gp.ClientStream // 后端游戏服数据流 - gp.GameService_StreamClient

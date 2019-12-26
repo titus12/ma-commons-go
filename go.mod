@@ -4,6 +4,7 @@ go 1.13
 
 require (
 	github.com/Shopify/sarama v1.24.1
+	github.com/allegro/bigcache/v2 v2.1.5
 	github.com/coreos/bbolt v1.3.3 // indirect
 	github.com/coreos/etcd v3.3.17+incompatible
 	github.com/coreos/go-semver v0.3.0 // indirect
@@ -13,6 +14,7 @@ require (
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
 	github.com/gogo/protobuf v1.3.1 // indirect
 	github.com/golang/groupcache v0.0.0-20191027212112-611e8accdfc9 // indirect
+	github.com/golang/protobuf v1.3.2
 	github.com/google/btree v1.0.0 // indirect
 	github.com/google/uuid v1.1.1 // indirect
 	github.com/gorilla/websocket v1.4.1 // indirect
