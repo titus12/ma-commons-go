@@ -1,14 +1,15 @@
 package gcache
 
 import (
-	"github.com/titus12/ma-commons-go/gcache/bigcache"
+	"fmt"
+	caching "github.com/titus12/gcache"
+	"github.com/titus12/gcache/cache"
 	"time"
-	"unsafe"
 )
 
 type GCache struct {
 	name   string
-	cache  *bigcache.BigCache
+	cache  *caching.GCache
 	config *GCacheConfig
 }
 
@@ -17,10 +18,12 @@ type IGCacheRWConfig interface {
 }
 
 type GCacheConfig struct {
+	Shards            uint32
 	TimeToLiveSeconds time.Duration
-	MaxEntries        int32
+	CleanInterval     time.Duration
 	MaxEntrySize      int32
-	OnRemoveEvent     func(key string, entry []byte)
+	EvictType         string
+	OnRemoveEvent     func(key interface{}, value interface{}, reason cache.RemoveReason)
 	RWConfig          IGCacheRWConfig
 }
 
@@ -28,53 +31,38 @@ func NewCache(name string, config *GCacheConfig) *GCache {
 	gCache := &GCache{}
 	gCache.name = name
 	gCache.config = config
-	bigConfig := bigcache.Config{
-		Shards:      1024,
-		LifeWindow:  config.TimeToLiveSeconds,
-		CleanWindow: 5 * time.Minute,
-		// rps * lifeWindow, used only in initial memory allocation
-		MaxEntriesInWindow: int(config.MaxEntrySize),
-		// max entry size in bytes, used only in initial memory allocation
-		MaxEntrySize: int(config.MaxEntries),
-		// prints information about additional memory allocation
-		Verbose: true,
-		// cache will not allocate more memory than this limit, value in MB
-		// if value is reached then the oldest entries can be overridden for the new ones
-		// 0 value means no size limit
-		HardMaxCacheSize: 0,
-		// callback fired when the oldest entry is removed because of its expiration time or no space left
-		// for the new entry, or because delete was called. A bitmask representing the reason will be returned.
-		// Default value is nil which means no callback and it prevents from unwrapping the oldest entry.
-		OnRemove: config.OnRemoveEvent,
-		// OnRemoveWithReason is a callback fired when the oldest entry is removed because of its expiration time or no space left
-		// for the new entry, or because delete was called. A constant representing the reason will be passed through.
-		// Default value is nil which means no callback and it prevents from unwrapping the oldest entry.
-		// Ignored if OnRemove is specified.
-		OnRemoveWithReason: nil,
+	gconfig := caching.Config{
+		Shards:        int(config.Shards),
+		Expiration:    config.TimeToLiveSeconds,
+		CleanInterval: config.CleanInterval,
+		MaxEntrySize:  int(config.MaxEntrySize),
+		EvictType:     config.EvictType,
+		OnRemoveFunc:  config.OnRemoveEvent,
+		Logger:        caching.DefaultLogger(),
 	}
-	gCache.cache, _ = bigcache.NewBigCache(bigConfig)
+	gCache.cache, _ = caching.NewGCache(gconfig)
 	return gCache
 }
 
 func (p *GCache) Queries(keys ...GCacheKey) (gCaches []*GCacheElement, err error) {
 	for _, key := range keys {
-		bytes, err := p.cache.Get(key.GetPrimary())
-		if err != nil {
-			return nil, err
-		}
-		var data *GCacheData
-		if bytes == nil {
+		obj, ok := p.cache.Get(key.GetPrimary())
+		var gCacheData GCacheData
+		if !ok {
 			if gCacheManager.rwHandler != nil {
-				bytes = gCacheManager.rwHandler.ReadRawData(key, p.config.RWConfig)
-				if err = p.cache.Set(key.GetPrimary(), bytes); err != nil {
-					return
+				gCacheData, err = gCacheManager.rwHandler.ReadData(key, p.config.RWConfig)
+				if err != nil {
+					return nil, err
 				}
-				data = *(**GCacheData)(unsafe.Pointer(&bytes))
+				if ok = p.cache.Set(key.GetPrimary(), obj); !ok {
+					return nil, fmt.Errorf("queries object, set object to gcache failed")
+				}
+				//data = *(**GCacheData)(unsafe.Pointer(&bytes))
 			}
 		} else {
-			data = *(**GCacheData)(unsafe.Pointer(&bytes))
+			gCacheData = obj.(GCacheData)
 		}
-		element := &GCacheElement{p, key, *data}
+		element := &GCacheElement{p, key, gCacheData}
 		gCaches = append(gCaches, element)
 	}
 	return

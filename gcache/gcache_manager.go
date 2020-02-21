@@ -1,14 +1,12 @@
 package gcache
 
 import (
-	_ "github.com/allegro/bigcache/v2"
 	_ "github.com/titus12/ma-commons-go/gcache/impl"
 )
 
 type IGCacheRWHandler interface {
-	ReadData(key interface{}, config IGCacheRWConfig) *GCacheData
-	ReadRawData(key interface{}, config IGCacheRWConfig) []byte
-	WriteData(key interface{}, data *GCacheData, config IGCacheRWConfig)
+	ReadData(key interface{}, config IGCacheRWConfig) (GCacheData, error)
+	WriteData(key interface{}, data GCacheData, config IGCacheRWConfig) error
 }
 
 var gCacheManager *GCacheManager

@@ -4,7 +4,6 @@ go 1.13
 
 require (
 	github.com/Shopify/sarama v1.24.1
-	github.com/allegro/bigcache/v2 v2.1.5
 	github.com/coreos/bbolt v1.3.3 // indirect
 	github.com/coreos/etcd v3.3.17+incompatible
 	github.com/coreos/go-semver v0.3.0 // indirect
@@ -30,6 +29,7 @@ require (
 	github.com/soheilhy/cmux v0.1.4 // indirect
 	github.com/templexxx/cpufeat v0.0.0-20180724012125-cef66df7f161 // indirect
 	github.com/templexxx/xor v0.0.0-20181023030647-4e92f724b73b // indirect
+	github.com/titus12/gcache v0.0.0-20200211033810-bebba5150f6c
 	github.com/tjfoc/gmsm v1.0.1 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect

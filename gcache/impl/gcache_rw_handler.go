@@ -24,18 +24,10 @@ func (g *GCacheRWConfig) DebugMode() bool {
 	return g.debugMode
 }
 
-func (g *GCacheRWHandler) ReadData(key interface{}, config gcache.IGCacheRWConfig) *gcache.GCacheData {
+func (g *GCacheRWHandler) ReadData(key interface{}, config gcache.IGCacheRWConfig) (gcache.GCacheData, error) {
 	cfg := config.(*GCacheRWConfig)
 	if cfg.DataSource == SOURCE_LOCAL {
-		return nil
-	}
-	return nil
-}
-
-func (g *GCacheRWHandler) ReadRawData(key interface{}, config gcache.IGCacheRWConfig) []byte {
-	cfg := config.(*GCacheRWConfig)
-	if cfg.DataSource == SOURCE_LOCAL {
-		return nil
+		return nil, nil
 	}
 	switch cfg.DataSource {
 	case SOURCE_REDIS:
@@ -43,10 +35,24 @@ func (g *GCacheRWHandler) ReadRawData(key interface{}, config gcache.IGCacheRWCo
 	case SOURCE_DATABASE:
 
 	}
-	return nil
+	return nil, nil
 }
 
-func (g *GCacheRWHandler) WriteData(key interface{}, data *gcache.GCacheData, config gcache.IGCacheRWConfig) {
+func (g *GCacheRWHandler) ReadRawData(key interface{}, config gcache.IGCacheRWConfig) (gcache.GCacheData, error) {
+	cfg := config.(*GCacheRWConfig)
+	if cfg.DataSource == SOURCE_LOCAL {
+		return nil, nil
+	}
+	switch cfg.DataSource {
+	case SOURCE_REDIS:
 
-	return
+	case SOURCE_DATABASE:
+
+	}
+	return nil, nil
+}
+
+func (g *GCacheRWHandler) WriteData(key interface{}, data gcache.GCacheData, config gcache.IGCacheRWConfig) error {
+
+	return nil
 }
