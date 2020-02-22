@@ -1,9 +1,10 @@
 package utils
 
 import (
+	"runtime"
+
 	"github.com/davecgh/go-spew/spew"
 	log "github.com/sirupsen/logrus"
-	"runtime"
 )
 
 func PrintPanicStack(extras ...interface{}) {

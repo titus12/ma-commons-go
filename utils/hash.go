@@ -18,3 +18,13 @@ func GetHash(str string) uint32 {
 	}
 	return hash1 + (hash2 * 1566083941)
 }
+
+func Hash(str string) uint32 {
+	hash := uint32(2166136261)
+	const prime32 = uint32(16777619)
+	for i := 0; i < len(str); i++ {
+		hash *= prime32
+		hash ^= uint32(str[i])
+	}
+	return hash
+}
