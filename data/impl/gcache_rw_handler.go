@@ -1,7 +1,7 @@
 package impl
 
 import (
-	"github.com/titus12/ma-commons-go/gcache"
+	"github.com/titus12/ma-commons-go/data"
 )
 
 type DATA_SOURCE int32
@@ -24,7 +24,7 @@ func (g *GCacheRWConfig) DebugMode() bool {
 	return g.debugMode
 }
 
-func (g *GCacheRWHandler) ReadData(key interface{}, config gcache.IGCacheRWConfig) (gcache.GCacheData, error) {
+func (g *GCacheRWHandler) ReadData(key interface{}, config data.IGCacheRWConfig) (data.GCacheData, error) {
 	cfg := config.(*GCacheRWConfig)
 	if cfg.DataSource == SOURCE_LOCAL {
 		return nil, nil
@@ -38,7 +38,7 @@ func (g *GCacheRWHandler) ReadData(key interface{}, config gcache.IGCacheRWConfi
 	return nil, nil
 }
 
-func (g *GCacheRWHandler) ReadRawData(key interface{}, config gcache.IGCacheRWConfig) (gcache.GCacheData, error) {
+func (g *GCacheRWHandler) ReadRawData(key interface{}, config data.IGCacheRWConfig) (data.GCacheData, error) {
 	cfg := config.(*GCacheRWConfig)
 	if cfg.DataSource == SOURCE_LOCAL {
 		return nil, nil
@@ -52,7 +52,7 @@ func (g *GCacheRWHandler) ReadRawData(key interface{}, config gcache.IGCacheRWCo
 	return nil, nil
 }
 
-func (g *GCacheRWHandler) WriteData(key interface{}, data gcache.GCacheData, config gcache.IGCacheRWConfig) error {
+func (g *GCacheRWHandler) WriteData(key interface{}, data data.GCacheData, config data.IGCacheRWConfig) error {
 
 	return nil
 }

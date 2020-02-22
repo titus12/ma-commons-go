@@ -1,7 +1,7 @@
-package gcache
+package data
 
 import (
-	_ "github.com/titus12/ma-commons-go/gcache/impl"
+	_ "github.com/titus12/ma-commons-go/data/impl"
 )
 
 type IGCacheRWHandler interface {

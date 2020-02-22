@@ -1,4 +1,4 @@
-package gcache
+package data
 
 import (
 	"fmt"
@@ -55,7 +55,7 @@ func (p *GCache) Queries(keys ...GCacheKey) (gCaches []*GCacheElement, err error
 					return nil, err
 				}
 				if ok = p.cache.Set(key.GetPrimary(), obj); !ok {
-					return nil, fmt.Errorf("queries object, set object to gcache failed")
+					return nil, fmt.Errorf("queries object, set object to data failed")
 				}
 				//data = *(**GCacheData)(unsafe.Pointer(&bytes))
 			}

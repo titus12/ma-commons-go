@@ -1,4 +1,4 @@
-package gcache
+package data
 
 import (
 	"fmt"

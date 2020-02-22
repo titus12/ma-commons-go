@@ -1,4 +1,4 @@
-package gcache
+package data
 
 type GCacheKey interface {
 	GetPrimary() string
