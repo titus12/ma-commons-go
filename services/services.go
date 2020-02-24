@@ -1,17 +1,21 @@
 package services
 
 import (
+	context2 "context"
 	_ "fmt"
-	etcdclient "github.com/coreos/etcd/client"
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/net/context"
-	"google.golang.org/grpc"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/titus12/ma-commons-go/utils/ctxfunc"
+
+	etcdclient "github.com/coreos/etcd/client"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/context"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -164,7 +168,15 @@ func (p *servicePool) connectAll(directory string) {
 	kAPI := etcdclient.NewKeysAPI(p.client)
 	// get the keys under directory
 	log.Infof("connecting services under:%v", directory)
-	resp, err := kAPI.Get(context.Background(), directory, &etcdclient.GetOptions{Recursive: true})
+
+	var (
+		resp *etcdclient.Response
+		err  error
+	)
+
+	ctxfunc.Timeout1m(func(ctx context2.Context) {
+		resp, err = kAPI.Get(ctx, directory, &etcdclient.GetOptions{Recursive: true})
+	})
 	if err != nil {
 		log.Error(err)
 		return
