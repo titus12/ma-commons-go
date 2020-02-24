@@ -16,6 +16,7 @@ type SessionDataBase interface {
 	Destroy()
 }
 
+// todo: 输入，输出都在外面，其实应该放在session结构体下的。
 type Session struct {
 	IP   net.IP
 	Addr string // game需要的数据

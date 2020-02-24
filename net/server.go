@@ -2,13 +2,14 @@ package net
 
 import (
 	"encoding/binary"
-	log "github.com/sirupsen/logrus"
-	"github.com/titus12/ma-commons-go/utils"
-	"github.com/xtaci/kcp-go"
 	"io"
 	"net"
 	"os"
 	"time"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/titus12/ma-commons-go/utils"
+	"github.com/xtaci/kcp-go"
 )
 
 type Config struct {
@@ -39,6 +40,7 @@ func NewServerHandler(cfg *Config, connectionHandler ConnectionHandler) *serverH
 	return &serverHandler{config: cfg, connHandler: connectionHandler}
 }
 
+// 每个连接会调用这个方法，启动一个goroutine
 func (serverHandler *serverHandler) ConnectionActive(conn net.Conn) {
 	defer utils.PrintPanicStack()
 	defer conn.Close()
@@ -48,6 +50,7 @@ func (serverHandler *serverHandler) ConnectionActive(conn net.Conn) {
 	// the input channel for agent()
 	in := make(chan []byte)
 	defer func() {
+		// todo: 这里为什么不关闭header?
 		close(in) // session will close
 	}()
 
@@ -70,9 +73,11 @@ func (serverHandler *serverHandler) ConnectionActive(conn net.Conn) {
 	sess.Die = make(chan struct{})
 
 	// create a write buffer
+	// todo: 这里实际是启动一个 goroutine 进行写操作，命名成 Buffer ,名称有岐义
 	out := NewBuffer(conn, sess.Die, serverHandler.config.Txqueuelen)
 	go out.start()
 
+	// todo: 这里为什么要一个sync.WaitGroup?
 	// start agent for PACKET processing
 	SigAdd()
 	go func() {
@@ -100,6 +105,7 @@ func (serverHandler *serverHandler) ConnectionActive(conn net.Conn) {
 		payload := make([]byte, size)
 		n, err = io.ReadFull(conn, payload)
 		if err != nil {
+			// todo: 错误后没有后续的处理了? 前面的 go程已经开启了？ 直接退出估计会有问题，go程会有泄露
 			log.Warningf("read payload failed, ip:%v reason:%v size:%v", sess.IP, err, n)
 			return
 		}

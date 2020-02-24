@@ -27,6 +27,7 @@ func Init(root, serviceId string, etcdHosts []string) {
 	})
 }
 
+// todo:
 type server struct {
 	root          string
 	serviceId     string
@@ -163,6 +164,7 @@ func (p *server) execGroupStr(category string, f func(map[string]string)) {
 
 func (p *server) set(key, value string) {
 
+	// todo: p.path根据key返回的是类别、服务、错误, 那么key是一个什么规则?
 	category, service, err := p.path(key)
 	if err != nil {
 		log.Error(err)
@@ -219,6 +221,7 @@ func (p *server) loadNumberPrefixs(filepath string) {
 		return
 	}
 
+	// todo:
 	// split types
 	types := strings.Split(resp.Node.Value, " ")
 	for _, v := range types {
@@ -228,6 +231,8 @@ func (p *server) loadNumberPrefixs(filepath string) {
 	log.Infof("reading number types :%v", resp.Node.Value)
 }
 
+// todo: 这里的逻缉和 services.go 中貌似有重复
+// todo: 在ma-agent-go里都有调用 sp.Init, ss.Init
 func (p *server) load() {
 	kAPI := etcdclient.NewKeysAPI(p.client)
 

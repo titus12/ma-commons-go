@@ -177,6 +177,7 @@ func (p *servicePool) connectAll(directory string) {
 	ctxfunc.Timeout1m(func(ctx context2.Context) {
 		resp, err = kAPI.Get(ctx, directory, &etcdclient.GetOptions{Recursive: true})
 	})
+
 	if err != nil {
 		log.Error(err)
 		return
