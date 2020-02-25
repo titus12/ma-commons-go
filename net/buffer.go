@@ -44,8 +44,6 @@ func (buf *Buffer) Send(sess *Session, data []byte) {
 	}
 
 	// queue the data for sending
-	// todo: 把数据先放到队列里，这个Buffer.start 启动了一个 go 用来把这里的数据发送出去
-	// todo: 感觉有点多此一举，目的是什么?
 	select {
 	case buf.pending <- data:
 	default: // packet will be dropped if txqueuelen exceeds

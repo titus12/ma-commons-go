@@ -50,7 +50,7 @@ func (serverHandler *serverHandler) ConnectionActive(conn net.Conn) {
 	// the input channel for agent()
 	in := make(chan []byte)
 	defer func() {
-		// todo: 这里为什么不关闭header?
+		header = nil
 		close(in) // session will close
 	}()
 
@@ -77,7 +77,6 @@ func (serverHandler *serverHandler) ConnectionActive(conn net.Conn) {
 	out := NewBuffer(conn, sess.Die, serverHandler.config.Txqueuelen)
 	go out.start()
 
-	// todo: 这里为什么要一个sync.WaitGroup?
 	// start agent for PACKET processing
 	SigAdd()
 	go func() {
