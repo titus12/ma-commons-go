@@ -55,6 +55,7 @@ func (buf *Buffer) Send(sess *Session, data []byte) {
 // packet sending goroutine
 func (buf *Buffer) start() {
 	defer utils.PrintPanicStack()
+	defer close(buf.pending)
 	for {
 		select {
 		case data := <-buf.pending:
