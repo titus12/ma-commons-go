@@ -32,7 +32,7 @@ func (g *GCacheElement) Get() (GCacheData, error) {
 	}
 	msg, ok := g.data.(proto.Message)
 	if !ok {
-		return nil, fmt.Errorf("cast proto.message error")
+		return nil, fmt.Errorf("cast proto.message errors")
 	}
 	clone := proto.Clone(msg).(GCacheData)
 	return clone, nil
@@ -44,7 +44,7 @@ func (g *GCacheElement) GetCollection(mode ACCESS_MODE) (GCollection, error) {
 	}
 	col, ok := g.data.(GCollection)
 	if !ok {
-		return nil, fmt.Errorf("cast gcollection error")
+		return nil, fmt.Errorf("cast gcollection errors")
 	}
 	clone := col.Clone()
 	return clone, nil

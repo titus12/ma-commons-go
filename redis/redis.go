@@ -62,13 +62,12 @@ func RedisGet(key string) (reply *db.StringCmd, err error) {
 	return
 }
 
-func RedisHSet(hKey, key, data string) (succ int64, err error) {
+func RedisHSet(hKey, key string, data interface{}) (succ int64, err error) {
 	client := getRedis()
 	if client == nil {
 		err = errors.New("redis service unavailable")
 		return
 	}
-
 	succ, err = client.HSet(hKey, key, data).Result()
 	return
 }
@@ -81,6 +80,16 @@ func RedisHGet(hKey, key string) (value string, err error) {
 	}
 
 	value, err = client.HGet(hKey, key).Result()
+	return
+}
+
+func RedisSetNX(key string, data interface{}, expiration time.Duration) (succ bool, err error) {
+	client := getRedis()
+	if client == nil {
+		err = errors.New("redis service unavailable")
+		return
+	}
+	succ, err = client.SetNX(key, data, expiration).Result()
 	return
 }
 

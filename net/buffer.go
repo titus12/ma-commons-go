@@ -34,7 +34,7 @@ func (buf *Buffer) Send(sess *Session, data []byte) {
 		var err error
 		data, err = cryptos.Encrypt(data, sess.CryptoKey)
 		if err != nil {
-			log.WithFields(log.Fields{"user_id": sess.UserId, "ip": sess.IP}).Errorf("des.Encrypt error %v", err)
+			log.WithFields(log.Fields{"user_id": sess.UserId, "ip": sess.IP}).Errorf("des.Encrypt errors %v", err)
 			return
 		}
 	} else if sess.Flag&SESS_KEYEXCG != 0 { // key is exchanged, encryption is not yet enabled

@@ -15,7 +15,7 @@ type Future struct {
 	result chan interface{} //等待收到的结果
 	t      *time.Timer      //超时保护定时器
 	//pipes        []*PID
-	//completions  []func(res interface{}, err error)
+	//completions  []func(res interface{}, err errors)
 }
 
 // 构建一个新的Future,传入一个超时时间，超时后会自行处理
