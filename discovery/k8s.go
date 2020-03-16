@@ -1,11 +1,13 @@
 // k8s 的服务发现
 // +build k8s
 
-package discover
+package discovery
 
 import (
 	"fmt"
 	"time"
+
+	"github.com/titus12/ma-commons-go/utils/diectrl"
 
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/tools/cache"
@@ -21,9 +23,11 @@ const (
 )
 
 type k8simpl struct {
-	clientset      *kubernetes.Clientset
-	stopController chan struct{}
-	stopWaitNotify chan struct{}
+	clientset *kubernetes.Clientset
+	//stopController chan struct{}
+	//stopWaitNotify chan struct{}
+
+	diectrl.Control
 
 	controller cache.Controller
 	nodeNofity chan *Node
@@ -42,11 +46,13 @@ func newImpl() *k8simpl {
 	}
 
 	k8s := &k8simpl{
-		clientset:      clientset,
-		stopController: make(chan struct{}),
-		stopWaitNotify: make(chan struct{}),
-		nodeNofity:     make(chan *Node, defaultListenSize),
+		clientset: clientset,
+		//stopController: make(chan struct{}),
+		//stopWaitNotify: make(chan struct{}),
+		nodeNofity: make(chan *Node, defaultListenSize),
 	}
+
+	k8s.Init(0)
 	return k8s
 }
 
@@ -66,20 +72,14 @@ func (k8s *k8simpl) Listen() <-chan *Node {
 			},
 		})
 		k8s.controller = controller
-		go controller.Run(k8s.stopController)
+		//go controller.Run(k8s.stopController)
+		go controller.Run(k8s.WaitDie())
 	}
 	return k8s.nodeNofity
 }
 
 func (k8s *k8simpl) Stop() <-chan struct{} {
-	go func() {
-		close(k8s.stopController)
-
-		// todo: 进行一些收尾工作，暂时没有东西要处理
-
-		close(k8s.stopWaitNotify)
-	}()
-	return k8s.stopWaitNotify
+	return k8s.CloseAndEnd(nil)
 }
 
 // 构建节点，发送给通知, pod在定义时，首个容器一定是对外提供服务的

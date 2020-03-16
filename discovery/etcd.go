@@ -1,7 +1,7 @@
 // etcd的服务发现
 // +build etcd
 
-package discover
+package discovery
 
 type etcdimpl struct {
 }

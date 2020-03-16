@@ -1,18 +1,11 @@
-package discover
-
-import (
-	"fmt"
-	"net"
-
-	"github.com/sirupsen/logrus"
-)
+package discovery
 
 const (
 	defaultListenSize = 2000
 )
 
 // 发现服务接口
-type DisServiceface interface {
+type NodeDiscoveryFace interface {
 	// 开始监听，返回接收节点的通道，方法可以重复调用，第一次调用则是开启监听，以后则只是返回接收节点的通道
 	Listen() <-chan *Node
 
@@ -23,12 +16,12 @@ type DisServiceface interface {
 	//IsStop() bool
 }
 
-func New() DisServiceface {
+func New() NodeDiscoveryFace {
 	return newImpl()
 }
 
 //var (
-//	defaultDiscover DisServiceface
+//	defaultDiscover NodeDiscoveryFace
 //)
 
 //func init() {
@@ -42,7 +35,7 @@ type Node struct {
 	Uid         string //唯一id
 	Ip          string //ip地址
 	Port        int32
-	Off         bool // 是否关闭（true: 添加服务，false: 关闭服务)
+	Off         bool // 是否关闭（true: 关闭，false: 开启)
 }
 
 //func Listen() <-chan *Node {
@@ -54,26 +47,26 @@ type Node struct {
 //}
 
 // 拿到机器自已的内网ip地址
-func selfIpArray() (iparr []string, err error) {
-	netInterfaces, err := net.Interfaces()
-	if err != nil {
-		logrus.Errorf("net.Interfaces failed, err: %v", err)
-		return
-	}
-
-	for i := 0; i < len(netInterfaces); i++ {
-		if netInterfaces[i].Flags&net.FlagUp != 0 {
-			addrs, _ := netInterfaces[i].Addrs()
-
-			for _, address := range addrs {
-				if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-					if ipnet.IP.To4() != nil {
-
-						fmt.Println(ipnet.IP.String())
-					}
-				}
-			}
-		}
-	}
-
-}
+//func selfIpArray() (iparr []string, err error) {
+//	netInterfaces, err := net.Interfaces()
+//	if err != nil {
+//		logrus.Errorf("net.Interfaces failed, err: %v", err)
+//		return
+//	}
+//
+//	for i := 0; i < len(netInterfaces); i++ {
+//		if netInterfaces[i].Flags&net.FlagUp != 0 {
+//			addrs, _ := netInterfaces[i].Addrs()
+//
+//			for _, address := range addrs {
+//				if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+//					if ipnet.IP.To4() != nil {
+//
+//						fmt.Println(ipnet.IP.String())
+//					}
+//				}
+//			}
+//		}
+//	}
+//
+//}
