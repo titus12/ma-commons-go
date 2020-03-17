@@ -1,7 +1,7 @@
 package discovery
 
 const (
-	defaultListenSize = 2000
+	defaultListenSize = 5000
 )
 
 // 发现服务接口

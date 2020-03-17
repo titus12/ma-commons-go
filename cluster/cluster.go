@@ -2,36 +2,118 @@ package cluster
 
 import (
 	"container/list"
+	"reflect"
+	"sync"
 	"time"
+
+	"github.com/titus12/ma-commons-go/utils"
 
 	"github.com/titus12/ma-commons-go/utils/diectrl"
 
 	"github.com/sirupsen/logrus"
 	"github.com/titus12/ma-commons-go/discovery"
-	"google.golang.org/grpc"
 )
 
-const ERR_RETRY_NUM = 20 // 错误重试次数
-const ERR_DELAY = 2      //错误延迟
+const (
+	ErrRetryNum       = 20              // 错误重试次数
+	ErrDelay          = 2               // 错误延迟
+	DialRetryNum      = 3               // GRPC拔号重试次数
+	DialRetryInterval = 1 * time.Second // grpc拔号重试间隔
+	DialTimeOut       = 3 * time.Second // grpc的拔号超时时间
 
-const DIAL_RETRY_NUM = 10 //拔号重试次数
-const DIAL_INTERVAL = 2   //拔号间隔
+	StopCloseRetryNum = 3 //集群停止时关闭节点失败后的重试次数
+)
 
-// 错误节点信息
-type errNodeInfo struct {
-	nodeCli *NodeClient //节点客户端
-	num     int         // 关闭次数
+// 服务的配置
+// 注意：Name保证服务是唯一的, CliFaceBuildFn 是grpc的一个New接口的方法，具体如下:
+//       比如我们protobuf声明了 test.WaiterClient 的接口，那么在test包下一定会有
+//       一个NewWaiterClient(*grpc.ClientConn) WaiterClient 的方法，我们传递给
+//       CliFaceBuildFn的就是这个方法指针，这里go没有提供任何可以检查是否传递正确
+//       的检测方法，使用都需要严格按规范使用
+type ServiceConfig struct {
+	Name           string      //服务名称
+	CliFaceBuildFn interface{} //客户调用接口生成方法（grpc都会有一个New接口的方法)
 }
 
-// 集群管理器, 集群没有别的功能，就是服务发现，下面的服务映射表不加锁, 后续所有操作只可能是只读
-// 映射表中的服务都会在启动时初始化后，以后只是对服国中的节点进行加减
+// 错误节点信息, 每次监听到节点发生变化，并且变化是关闭节点时，如果关闭时发生错误，则
+// 会形成错误信息，以便后续执行错误重试处理，这里的重试不会发生在节点变更调用的goroutine
+// 上，而是会有一条专门的goroutine来处理，所谓的节点关闭重点是关闭grpc连接，释放grpc资
+// 源
+type errNodeInfo struct {
+	nodeCli  *NodeClient //节点客户端
+	retryNum int         // 重试次数
+}
+
+// 错误节点列表
+type errNodes struct {
+	*sync.Mutex
+	*list.List
+}
+
+func (en *errNodes) init() {
+	en.Mutex = &sync.Mutex{}
+	en.List = list.New()
+}
+
+// 弹出错误信息
+func (en *errNodes) poperr() []*errNodeInfo {
+	en.Lock()
+	defer en.Unlock()
+	if en.List == nil {
+		return nil
+	}
+
+	el := en.Front()
+	if el != nil {
+		en.Remove(el)
+		if el.Value != nil {
+			return el.Value.([]*errNodeInfo)
+		}
+	}
+	return nil
+}
+
+// 放错误信息，延迟后会弹出，延迟最小计量单位秒
+func (en *errNodes) pusherr(errInfo *errNodeInfo, delay int) {
+	en.Lock()
+	defer en.Unlock()
+
+	if en.List == nil {
+		return
+	}
+
+	el := en.Front()
+	for i := 0; i < delay; i++ {
+		if el == nil {
+			el = en.PushBack(make([]*errNodeInfo, 0, 1))
+		}
+		if i == (delay - 1) {
+			break
+		} else {
+			el = el.Next()
+		}
+	}
+	arr := el.Value.([]*errNodeInfo)
+	arr = append(arr, errInfo)
+	el.Value = arr
+}
+
+func (en *errNodes) setEmpty() {
+	en.Lock()
+	defer en.Unlock()
+	en.List = nil
+}
+
+// 集群管理器, 集群没有别的功能，就是服务发现，下面的服务映射表(serviceMap)不加锁, 后续所有操作只可能是只读
+// 映射表中的服务都会在启动时初始化后，以后只是对服务中的节点进行加减
 type Cluster struct {
 	serviceMap map[string]*Service
 	disCovery  discovery.NodeDiscoveryFace
 
 	// 错误节点，监听到节点关闭后，无法正常关闭的节点
-	// 这里是一个链表，链表下挂的是一个数组，会启动一个ticker每秒对链表表进行扫瞄
-	errNodes *list.List
+	// 这里是一个链表，链表下挂的是一个数组，会启动一个ticker每秒对链表头进行扫瞄
+	//errNodes *list.List
+	errNodes
 
 	diectrl.Control
 }
@@ -40,18 +122,12 @@ func New() *Cluster {
 	cluster := &Cluster{
 		serviceMap: map[string]*Service{},
 		disCovery:  discovery.New(),
-		errNodes:   list.New(),
 	}
+	cluster.errNodes.init()
 
-	// 集群会启动2个goroutines来进行操作 1.负责监控node的变化， 2.负责错识node的关闭
+	// 集群会启动2个goroutine来进行操作 1.负责监控node的变化， 2.负责错误node的关闭
 	cluster.Init(2)
 	return cluster
-}
-
-// 服务的配置
-type ServiceConfig struct {
-	Name           string      //服务名称
-	CliFaceBuildFn interface{} //客户调用接口生成方法（grpc都会有一个New接口的方法)
 }
 
 // 根据服务配置初始化服务，服务初始化只执行一次，多次执行并无效果，建议都是在程序启动时
@@ -74,13 +150,11 @@ func (cluster *Cluster) InitService(confArray []ServiceConfig) {
 
 		s := &Service{
 			name:           conf.Name,
-			cliFacebuildFn: conf.CliFaceBuildFn,
+			cliFacebuildFn: reflect.ValueOf(conf.CliFaceBuildFn),
 			nodeClientMap:  map[string]*NodeClient{},
 		}
-
 		cluster.serviceMap[s.name] = s
 	}
-	cluster.disCovery = discovery.New()
 
 	go cluster.nodeProcess()
 	go cluster.errProcess()
@@ -99,9 +173,25 @@ func (cluster *Cluster) nodeProcess() {
 		}
 	}
 end:
-	// todo: 把所有节点进行关闭
-
+	cluster.closeAllNodeCli()
 	cluster.Done()
+}
+
+// 关闭所有节点
+func (cluster *Cluster) closeAllNodeCli() {
+	for _, service := range cluster.serviceMap {
+		cliArray := service.NodeCliArray()
+		for _, cli := range cliArray {
+			err := utils.Retry(StopCloseRetryNum, time.Second, 1, func() error {
+				return cli.Close()
+			})
+			if err != nil {
+				logrus.WithError(err).Errorf("关服时节点关闭错误....service: %s, uid: %s, ip: %s",
+					cli.serviceName, cli.uid, cli.ip)
+				// todo: 加办法再记一次，至少可以发到某个地方提醒
+			}
+		}
+	}
 }
 
 //todo: 关闭节点错误后的后续处理，这里需要注意是否会产生panic,产生panic时要恢复处理
@@ -113,18 +203,22 @@ func (cluster *Cluster) errProcess() {
 		select {
 		case <-ticker.C:
 			errInfoArray := cluster.poperr()
+			if errInfoArray == nil {
+				continue
+			}
 			for _, errInfo := range errInfoArray {
-				errInfo.num++
-				err := errInfo.nodeCli.grpc.Close()
+				errInfo.retryNum++
+				err := errInfo.nodeCli.Close()
 				if err != nil {
-					if errInfo.num >= ERR_RETRY_NUM {
-						logrus.Error(err)
+					if errInfo.retryNum >= ErrRetryNum {
+						logrus.WithError(err).Errorf("关闭错误重试次数过多....service: %s, uid: %s, ip: %s",
+							errInfo.nodeCli.serviceName, errInfo.nodeCli.uid, errInfo.nodeCli.ip)
 						// todo: 除了正常日志打印，看还记录在哪里，之后能调出来看，并且向类似微信丁丁之类的进行报警
 						continue
 					}
 
 					// 每次延迟都进行时间递增
-					cluster.pusherr(errInfo, ERR_DELAY*errInfo.num)
+					cluster.pusherr(errInfo, ErrDelay*errInfo.retryNum)
 				}
 			}
 		case <-cluster.WaitDie():
@@ -140,12 +234,16 @@ end:
 // 最终清理错误
 func (cluster *Cluster) finalCleanupErr() {
 	cloneList := cluster.errNodes
-	cluster.errNodes = nil
+
+	cluster.errNodes.setEmpty()
 
 	for el := cloneList.Front(); el != nil; el = el.Next() {
 		arr := el.Value.([]*errNodeInfo)
+		if arr == nil {
+			continue
+		}
 		for _, errInfo := range arr {
-			err := errInfo.nodeCli.grpc.Close()
+			err := errInfo.nodeCli.Close()
 			if err != nil {
 				logrus.WithError(err).Errorf("节点最终关闭错误....")
 				// todo: 除了正常日志打印，看还记录在哪里，之后能调出来看，并且向类似微信丁丁之类的进行报警
@@ -154,48 +252,10 @@ func (cluster *Cluster) finalCleanupErr() {
 	}
 }
 
-// 弹出错误信息
-func (cluster *Cluster) poperr() []*errNodeInfo {
-
-	if cluster.errNodes == nil {
-		return nil
-	}
-
-	el := cluster.errNodes.Front() // 第一个元素
-	cluster.errNodes.Remove(el)
-	if el != nil && el.Value != nil {
-		return el.Value.([]*errNodeInfo)
-	}
-	return nil
-}
-
-// 放错误信息，一定延迟后会弹出，延迟最小计量单位秒
-func (cluster *Cluster) pusherr(errInfo *errNodeInfo, delay int) {
-	if cluster.errNodes == nil {
-		return
-	}
-
-	el := cluster.errNodes.Front()
-	for i := 0; i < delay; i++ {
-		if el == nil {
-			el = cluster.errNodes.PushBack(make([]*errNodeInfo, 0, 1))
-		}
-		if i == (delay - 1) {
-			break
-		} else {
-			el = el.Next()
-		}
-	}
-	arr := el.Value.([]*errNodeInfo)
-	arr = append(arr, errInfo)
-	el.Value = arr
-
-}
-
 // 最终返出去，让调用者决定是同步调用，还是异步调用
 func (cluster *Cluster) Stop() <-chan struct{} {
 	return cluster.CloseAndEnd(func() {
-		cluster.disCovery.Stop()
+		<-cluster.disCovery.Stop()
 	})
 }
 
@@ -208,59 +268,49 @@ func (cluster *Cluster) nodeUpdate(node *discovery.Node) {
 			nodeCli, err := service.closeNode(node.Uid)
 			// 关闭节点失败
 			if err != nil {
-				logrus.WithError(err).Errorf("节点关闭失败 uid: %s, ip ")
-				cluster.pusherr(&errNodeInfo{nodeCli: nodeCli}, ERR_DELAY)
+				logrus.WithError(err).Errorf("节点关闭失败 service: %s, uid: %s, ip: %s",
+					nodeCli.serviceName, nodeCli.uid, nodeCli.ip)
+				cluster.pusherr(&errNodeInfo{nodeCli: nodeCli}, ErrDelay)
 			}
 		} else {
-
+			logrus.Infof("准备打开节点.... service: %s, uid: %s, ip: %s, port: %d",
+				node.ServiceName, node.Uid, node.Ip, node.Port)
+			err := service.openNode(node)
+			if err != nil {
+				logrus.WithError(err).Errorf("节点打开失败... service: %s, uid: %s, ip: %s, port: %d",
+					node.ServiceName, node.Uid, node.Ip, node.Port)
+				// todo: 这里是否应该进行记录，或者要发送到某个对容器生命周期监控的容器进行容器的消亡???
+			}
 		}
 	}
 }
 
-// 服务这里的接口生成会采用反射，虽然go的反射性能不好，但由于服务发现执行次数较少，统一处理
-// 还是采用反射，另外由于go不提供模板，所以统一返回 interface{}, cliFacebuildFn反射的是grpc
-// 对客户端接口New的方法，返回具体接口，需要调用者自已强转，调用者肯定清楚是哪个服务的接口.
-// 注意：这里会有人统一grpc的接口，但个人认为这样的设计不好，虽然代码编写上会很方便，但对于使
-//       用的人很不友好
-type Service struct {
-	name           string                 //服务名称
-	cliFacebuildFn interface{}            //客户端接口生成方法（grpc都会有一个New接口的方法)
-	nodeClientMap  map[string]*NodeClient //服务所连接的地址
-}
-
-// 关闭节点(对节点的操作都建立在服务结构的方法中，方便以后变更操作方式，比如现在没有进行加锁，
-// 后面很大可能加锁
-func (service *Service) closeNode(uid string) (nodeCli *NodeClient, err error) {
-	if nodeCli := service.nodeClientMap[uid]; nodeCli != nil {
-		delete(service.nodeClientMap, uid)
-		err = nodeCli.grpc.Close()
-		return
-	}
-	return
-}
-
-// 打开节点失败，怎么处理，（不希望和k8s进行强关系)
-func (service *Service) openNode(node *discovery.Node) {
+func (cluster *Cluster) ClientInterfaceWithUid(serviceName string, nodeUid string) interface{} {
 	// todo:
+	return nil
 }
 
-type NodeClient struct {
-	grpc *grpc.ClientConn //grpc的连接
-
-	//uid  string
-	//ip   string
-	//port int
-
-	weight  int         //权重
-	cliFace interface{} //客户端调用接口
+func (cluster *Cluster) ClientInterfaceWithMin(serviceName string) interface{} {
+	// todo:
+	return nil
 }
 
-// 返回客户端调用接口
-func (cli *NodeClient) ClientInterface() interface{} {
-	return cli.cliFace
+func (cluster *Cluster) ClientInterfaceWithMax(serviceName string) interface{} {
+	// todo:
+	return nil
 }
 
-//func (s *Service) WeightSelect() *NodeClient {
-//	// todo: 权重选择，选择权重最小的
-//	return nil
-//}
+func (cluster *Cluster) MinNodeCli(serviceName string) *NodeClient {
+	// todo:
+	return nil
+}
+
+func (cluster *Cluster) MaxNodeCli(serviceName string) *NodeClient {
+	// todo:
+	return nil
+}
+
+func (cluster *Cluster) NodeCli(serviceName string, nodeUid string) *NodeClient {
+	// todo:
+	return nil
+}

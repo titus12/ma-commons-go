@@ -23,7 +23,8 @@ func Retry(attempts int, sleep time.Duration, sleepRate int, fn func() error) er
 			if sleep != 0 {
 				time.Sleep(sleep)
 			}
-			return Retry(attempts, 2*sleep, fn)
+
+			return Retry(attempts, time.Duration(int64(sleep)*int64(sleepRate)), sleepRate, fn)
 		}
 		return err
 	}
