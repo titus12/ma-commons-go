@@ -4,7 +4,6 @@
 package discovery
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/titus12/ma-commons-go/utils/diectrl"
@@ -112,7 +111,8 @@ func (k8s *k8simpl) buildNode(pod *v1.Pod) {
 		}
 
 		node := &Node{
-			Uid:         buildUid(pod.Status.ContainerStatuses[0].ContainerID, portInfo.ContainerPort),
+			Uid: buildUid(pod.Status.ContainerStatuses[0].ContainerID),
+			//Uid:         buildUid(pod.Status.ContainerStatuses[0].ContainerID, portInfo.ContainerPort),
 			ServiceName: pod.Status.ContainerStatuses[0].Name,
 			Ip:          pod.Status.PodIP,
 			Port:        portInfo.ContainerPort,
@@ -124,8 +124,13 @@ func (k8s *k8simpl) buildNode(pod *v1.Pod) {
 }
 
 // 构建一个节点的唯一id，取容器id的前12位
-func buildUid(containerID string, port int32) string {
-	return fmt.Sprintf("%s_%d", containerID[9:9+12], port)
+//func buildUid(containerID string, port int32) string {
+//	return fmt.Sprintf("%s_%d", containerID[9:9+12], port)
+//}
+
+func buildUid(containerID string) string {
+	return containerID[9 : 9+12]
+	//return fmt.Sprintf("%s", containerID[9:9+12])
 }
 
 // 检查是否关闭

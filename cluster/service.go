@@ -14,7 +14,7 @@ import (
 )
 
 // 这里把map声名成一个类型是为了方便在service结构体上操作map,这里的map会涉及到读写锁
-// 如果在操作上总是lock,unlock,极为不方便，而且容易忘记unlock发生错误,而且定义类弄从
+// 如果在操作上总是lock,unlock,极为不方便，而且容易忘记unlock发生错误,而且定义结构从
 // 代码上一下子就能看出是什么操作，但这个类型不开放，仅限在包内使用
 type nodeClientMap map[string]*NodeClient
 

@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/titus12/ma-commons-go/server"
+
 	"github.com/titus12/ma-commons-go/utils"
 
 	"github.com/titus12/ma-commons-go/utils/diectrl"
@@ -167,6 +169,10 @@ func (cluster *Cluster) nodeProcess() {
 	for {
 		select {
 		case node := <-nodeNotify:
+			// 跳过自已，自已不需要进行发现
+			if node.Uid == server.ID {
+				continue
+			}
 			cluster.nodeUpdate(node)
 		case <-cluster.WaitDie():
 			goto end
