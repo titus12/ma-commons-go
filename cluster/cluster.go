@@ -31,7 +31,7 @@ const (
 //       比如我们protobuf声明了 test.WaiterClient 的接口，那么在test包下一定会有
 //       一个NewWaiterClient(*grpc.ClientConn) WaiterClient 的方法，我们传递给
 //       CliFaceBuildFn的就是这个方法指针，这里go没有提供任何可以检查是否传递正确
-//       的检测方法，使用都需要严格按规范使用
+//       的检测方法，使用者需要严格按规范使用
 type ServiceConfig struct {
 	Name           string      //服务名称
 	CliFaceBuildFn interface{} //客户调用接口生成方法（grpc都会有一个New接口的方法)
@@ -117,6 +117,7 @@ type Cluster struct {
 	//errNodes *list.List
 	errNodes
 
+	// 死亡控制器
 	diectrl.Control
 }
 
@@ -169,6 +170,10 @@ func (cluster *Cluster) nodeProcess() {
 	for {
 		select {
 		case node := <-nodeNotify:
+			if node == nil {
+				goto end
+			}
+
 			// 跳过自已，自已不需要进行发现
 			if node.Uid == server.ID {
 				continue
@@ -194,7 +199,7 @@ func (cluster *Cluster) closeAllNodeCli() {
 			if err != nil {
 				logrus.WithError(err).Errorf("关服时节点关闭错误....service: %s, uid: %s, ip: %s",
 					cli.serviceName, cli.uid, cli.ip)
-				// todo: 加办法再记一次，至少可以发到某个地方提醒
+				// todo: 想办法再记一次，至少可以发到某个地方提醒，比如丁丁、微信或手机短信之类的
 			}
 		}
 	}

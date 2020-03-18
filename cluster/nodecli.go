@@ -39,10 +39,11 @@ func newNodeClient(node *discovery.Node, conn *grpc.ClientConn, cliFace interfac
 }
 
 // 返回客户端调用接口, 这个调用接口实际是grpc的服务接口，不同服务的接口不同，需要
-// 使用都强转 例如：
+// 使用者强转 例如：
 //   nodeCli *NodeClient
 //   wc := nodeCli.ClientInterface().(WaiterClient)
 // 其中 WaiterClient 就是grpc的某个服务的接口，需要通过protobuf进行定义并生成
+// 对于强转来说，使用都肯定清楚是使用哪类服务
 func (cli *NodeClient) ClientInterface() interface{} {
 	return cli.cliFace
 }

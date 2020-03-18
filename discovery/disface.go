@@ -11,25 +11,13 @@ type NodeDiscoveryFace interface {
 
 	// 停止监听，返回停止等待信号
 	Stop() <-chan struct{}
-
-	//// 是否停止
-	//IsStop() bool
 }
 
 func New() NodeDiscoveryFace {
 	return newImpl()
 }
 
-//var (
-//	defaultDiscover NodeDiscoveryFace
-//)
-
-//func init() {
-//	defaultDiscover = New()
-//	defaultDiscover.Listen()
-//}
-
-// 节点 (ip:port 肯定是唯一的)
+// 节点 (uid肯定是唯一的)
 type Node struct {
 	ServiceName string //服务名称
 	Uid         string //唯一id
@@ -37,14 +25,6 @@ type Node struct {
 	Port        int32
 	Off         bool // 是否关闭（true: 关闭，false: 开启)
 }
-
-//func Listen() <-chan *Node {
-//	return defaultDiscover.Listen()
-//}
-//
-//func Stop() <-chan struct{} {
-//	return defaultDiscover.Stop()
-//}
 
 // 拿到机器自已的内网ip地址
 //func selfIpArray() (iparr []string, err error) {

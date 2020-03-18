@@ -23,7 +23,6 @@ func (cm nodeClientMap) addcli(cli *NodeClient, mu *sync.RWMutex) {
 	mu.Lock()
 	defer mu.Unlock()
 	cm[cli.uid] = cli
-
 }
 
 // 删除节点客户
