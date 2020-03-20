@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func init() {
+func idInitImpl() {
 	guid := uuid.New()
 	h := sha256.New()
 

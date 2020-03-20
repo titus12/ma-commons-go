@@ -27,10 +27,10 @@ const (
 // 在设定的中，第0个要设定成节点对外提供grpc端口的容器，最好的设定是是pod中只有一个容
 // 器
 type k8simpl struct {
-	clientset       *kubernetes.Clientset // k8s的客户端访问集合
-	diectrl.Control                       //死亡控制器
-	controller      cache.Controller      // k8s的用于节点发现的controller
-	nodeNofity      chan *Node            // 节点通知，节点发现后会放到这个通道
+	clientset         *kubernetes.Clientset // k8s的客户端访问集合
+	diectrl.ControlV1                       //死亡控制器
+	controller        cache.Controller      // k8s的用于节点发现的controller
+	nodeNofity        chan *Node            // 节点通知，节点发现后会放到这个通道
 }
 
 // 构建k8s实现

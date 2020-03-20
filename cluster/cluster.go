@@ -118,7 +118,7 @@ type Cluster struct {
 	errNodes
 
 	// 死亡控制器
-	diectrl.Control
+	diectrl.ControlV1
 }
 
 func New() *Cluster {

@@ -12,7 +12,7 @@ import (
 )
 
 // 获取docker容器id
-func init() {
+func idInitImpl() {
 	file, err := os.Open("/proc/self/cgroup")
 	if err != nil {
 		logrus.WithError(err).Panicf("读取Docker容器id失败")

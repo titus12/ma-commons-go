@@ -1,7 +1,17 @@
 package discovery
 
+import (
+	"fmt"
+	"net"
+	"time"
+
+	"github.com/sirupsen/logrus"
+)
+
 const (
 	defaultListenSize = 5000
+
+	defaultTcpDialTimeOut = 5 * time.Second
 )
 
 // 发现服务接口
@@ -24,6 +34,16 @@ type Node struct {
 	Ip          string //ip地址
 	Port        int32
 	Off         bool // 是否关闭（true: 关闭，false: 开启)
+}
+
+func (node *Node) String() string {
+	str := fmt.Sprintf("{Service: %s, Uid: %s %s:%d, Off: %t}",
+		node.ServiceName, node.Uid, node.Ip, node.Port, node.Off)
+	return str
+}
+
+func (node *Node) Address() string {
+	return fmt.Sprintf("%s:%d", node.Ip, node.Port)
 }
 
 // 拿到机器自已的内网ip地址
@@ -50,3 +70,15 @@ type Node struct {
 //	}
 //
 //}
+
+// 检查节点表示的网络是否畅通
+func checkNet(n *Node) bool {
+	conn, err := net.DialTimeout("tcp", n.Address(), defaultTcpDialTimeOut)
+	if err != nil {
+		logrus.WithError(err).Errorf("探测连接失败...%s", n.Address())
+		return false
+	}
+
+	defer conn.Close()
+	return true
+}
