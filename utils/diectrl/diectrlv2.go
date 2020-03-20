@@ -54,3 +54,20 @@ func (ctrl *ControlV2) CloseAndEnd(fn func()) <-chan struct{} {
 	}()
 	return ctrl.finalDie
 }
+
+// 运行生命周期.....
+func (ctrl *ControlV2) GoLoopFun(run func(), end func()) {
+	go func() {
+		for {
+			select {
+			case <-ctrl.ctx.Done():
+				end()
+				goto xx
+			default:
+				run()
+			}
+		}
+	xx:
+		ctrl.Done()
+	}()
+}
