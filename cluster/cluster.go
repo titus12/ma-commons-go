@@ -166,12 +166,18 @@ func (cluster *Cluster) InitService(confArray []ServiceConfig) {
 // todo: 这里需要注意是否会产生panic, 产生panic时要恢复处理,
 // todo: 这里还需要处理，正常退出时，要退出的协程
 func (cluster *Cluster) nodeProcess() {
+
+	defer func() {
+		cluster.closeAllNodeCli()
+		cluster.Done()
+	}()
+
 	nodeNotify := cluster.disCovery.Listen()
 	for {
 		select {
 		case node := <-nodeNotify:
 			if node == nil {
-				goto end
+				return
 			}
 
 			// 跳过自已，自已不需要进行发现
@@ -180,12 +186,9 @@ func (cluster *Cluster) nodeProcess() {
 			}
 			cluster.nodeUpdate(node)
 		case <-cluster.WaitDie():
-			goto end
+			return
 		}
 	}
-end:
-	cluster.closeAllNodeCli()
-	cluster.Done()
 }
 
 // 关闭所有节点
@@ -208,6 +211,12 @@ func (cluster *Cluster) closeAllNodeCli() {
 //todo: 关闭节点错误后的后续处理，这里需要注意是否会产生panic,产生panic时要恢复处理
 //todo: 这里还需要处理，正常退出时，要退出的协程
 func (cluster *Cluster) errProcess() {
+	defer func() {
+		// 最后进行所有错误的清理
+		cluster.finalCleanupErr()
+		cluster.Done()
+	}()
+
 	ticker := time.NewTicker(time.Second)
 
 	for {
@@ -233,13 +242,9 @@ func (cluster *Cluster) errProcess() {
 				}
 			}
 		case <-cluster.WaitDie():
-			goto end
+			return
 		}
 	}
-end:
-	// 最后进行所有错误的清理
-	cluster.finalCleanupErr()
-	cluster.Done()
 }
 
 // 最终清理错误

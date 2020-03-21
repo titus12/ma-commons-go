@@ -128,12 +128,16 @@ func (e *etcdimpl) Listen() <-chan *Node {
 }
 
 func (e *etcdimpl) watcher() {
+	defer func() {
+		e.Done()
+	}()
+
 	kAPI := etcdclient.NewKeysAPI(e.cli)
 	w := kAPI.Watcher(DefaultRoot, &etcdclient.WatcherOptions{Recursive: true})
 	for {
 		select {
 		case <-e.WaitDie():
-			goto end
+			return
 		default:
 			resp, err := w.Next(e.Ctx())
 			if err != nil {
@@ -181,8 +185,6 @@ func (e *etcdimpl) watcher() {
 			e.nodeNofity <- node
 		}
 	}
-end:
-	e.Done()
 }
 
 func (e *etcdimpl) Stop() <-chan struct{} {
