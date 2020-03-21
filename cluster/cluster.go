@@ -269,9 +269,9 @@ func (cluster *Cluster) finalCleanupErr() {
 }
 
 // 最终返出去，让调用者决定是同步调用，还是异步调用
-func (cluster *Cluster) Stop() <-chan struct{} {
-	return cluster.CloseAndEnd(func() {
-		<-cluster.disCovery.Stop()
+func (cluster *Cluster) Close() <-chan struct{} {
+	return cluster.Destroy(func() {
+		<-cluster.disCovery.Close()
 	})
 }
 

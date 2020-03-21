@@ -58,7 +58,7 @@ func newDefaultContext(actor ActorHandler, pid *PID) *defaultContext {
 
 func (ctx *defaultContext) defaultReceive() {
 	//if _, ok := ctx.Message().(*PoisonPill); ok {
-	//	ctx.Stop(ctx.self)
+	//	ctx.Close(ctx.self)
 	//	return
 	//}
 

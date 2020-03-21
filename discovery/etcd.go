@@ -187,6 +187,6 @@ func (e *etcdimpl) watcher() {
 	}
 }
 
-func (e *etcdimpl) Stop() <-chan struct{} {
-	return e.CloseAndEnd(nil)
+func (e *etcdimpl) Close() <-chan struct{} {
+	return e.Destroy(nil)
 }

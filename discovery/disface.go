@@ -20,7 +20,7 @@ type NodeDiscoveryFace interface {
 	Listen() <-chan *Node
 
 	// 停止监听，返回停止等待信号
-	Stop() <-chan struct{}
+	Close() <-chan struct{}
 }
 
 func New() NodeDiscoveryFace {
