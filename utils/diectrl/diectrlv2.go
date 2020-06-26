@@ -40,7 +40,7 @@ func (ctrl *ControlV2) FinalDie() <-chan struct{} {
 	return ctrl.finalDie
 }
 
-func (ctrl *ControlV2) CloseAndEnd(fn func()) <-chan struct{} {
+func (ctrl *ControlV2) Destroy(fn func()) <-chan struct{} {
 	go func() {
 		ctrl.cancel()
 		ctrl.Wait()

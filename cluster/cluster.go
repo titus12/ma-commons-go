@@ -166,10 +166,12 @@ func (cluster *Cluster) InitService(confArray []ServiceConfig) {
 // todo: 这里需要注意是否会产生panic, 产生panic时要恢复处理,
 // todo: 这里还需要处理，正常退出时，要退出的协程
 func (cluster *Cluster) nodeProcess() {
+
 	defer func() {
 		cluster.closeAllNodeCli()
 		cluster.Done()
 	}()
+
 	nodeNotify := cluster.disCovery.Listen()
 	for {
 		select {
@@ -187,7 +189,6 @@ func (cluster *Cluster) nodeProcess() {
 			return
 		}
 	}
-
 }
 
 // 关闭所有节点
@@ -210,6 +211,12 @@ func (cluster *Cluster) closeAllNodeCli() {
 //todo: 关闭节点错误后的后续处理，这里需要注意是否会产生panic,产生panic时要恢复处理
 //todo: 这里还需要处理，正常退出时，要退出的协程
 func (cluster *Cluster) errProcess() {
+	defer func() {
+		// 最后进行所有错误的清理
+		cluster.finalCleanupErr()
+		cluster.Done()
+	}()
+
 	ticker := time.NewTicker(time.Second)
 
 	for {
@@ -235,13 +242,9 @@ func (cluster *Cluster) errProcess() {
 				}
 			}
 		case <-cluster.WaitDie():
-			goto end
+			return
 		}
 	}
-end:
-	// 最后进行所有错误的清理
-	cluster.finalCleanupErr()
-	cluster.Done()
 }
 
 // 最终清理错误
@@ -266,9 +269,9 @@ func (cluster *Cluster) finalCleanupErr() {
 }
 
 // 最终返出去，让调用者决定是同步调用，还是异步调用
-func (cluster *Cluster) Stop() <-chan struct{} {
-	return cluster.CloseAndEnd(func() {
-		<-cluster.disCovery.Stop()
+func (cluster *Cluster) Close() <-chan struct{} {
+	return cluster.Destroy(func() {
+		<-cluster.disCovery.Close()
 	})
 }
 

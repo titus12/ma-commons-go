@@ -27,7 +27,7 @@ func (ctrl *ControlV1) Init(goNum int) {
 // 这里只是一般做法，但有些结构的死亡，需要结体自行控制，结构体本身可能启动了协程
 // 所以如果要细微控制，此方法就不必要调用，可以调用CloseWaitDie(),CloseFinalDie()
 // 分别对死亡和死亡等待进行关闭
-func (ctrl *ControlV1) CloseAndEnd(fn func()) <-chan struct{} {
+func (ctrl *ControlV1) Destroy(fn func()) <-chan struct{} {
 	go func() {
 		close(ctrl.waitDie)
 		ctrl.Wait()
@@ -48,7 +48,7 @@ func (ctrl *ControlV1) CloseAndEnd(fn func()) <-chan struct{} {
 // 所以如果要细微控制，此方法就不必要调用，可以调用CloseWaitDie(),CloseFinalDie()
 // 分别对死亡和死亡等待进行关闭
 // 注意: beforeFn是在 waitDie关闭后立即执行，但在 wait 之前, afterFn与之前fn一样
-func (ctrl *ControlV1) CloseAndEnd2(beforeFn, afterFn func()) <-chan struct{} {
+func (ctrl *ControlV1) Destroy2(beforeFn, afterFn func()) <-chan struct{} {
 	go func() {
 		close(ctrl.waitDie)
 		if beforeFn != nil {
