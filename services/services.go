@@ -1,7 +1,7 @@
 package services
 
 import (
-	context2 "context"
+	"encoding/json"
 	_ "fmt"
 	"os"
 	"path/filepath"
@@ -10,40 +10,49 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/titus12/ma-commons-go/utils/ctxfunc"
-
 	etcdclient "github.com/coreos/etcd/client"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 )
 
-const (
-	DEFAULT_TIMEOUT = 5 * time.Second
-	DEFAULT_RETRIES = 6 // failed connection retries (for every ten seconds)
+import (
+	"github.com/titus12/ma-commons-go/utils"
 )
 
+const (
+	DefaultTimeout = 5 * time.Second
+	DefaultRetries = 6 // failed connection retries (for every ten seconds)
+)
+
+type nodeInfo struct {
+	addr   string `json:"addr"`
+	status int32  `json:"status"`
+}
+
 // a single connection
-type client struct {
+type node struct {
 	key  string
 	conn *grpc.ClientConn
+	info *nodeInfo
 }
 
 // a kind of service
 type service struct {
-	clients []client
-	idx     uint32 // for round-robin purpose
+	consistent *Consistent
+	node       []node
+	idx        uint32 // for round-robin purpose
 }
 
 // all services
 type servicePool struct {
-	root           string
-	services       map[string]*service
-	known_names    map[string]bool
-	names_provided bool
-	client         etcdclient.Client
-	callbacks      map[string][]chan string // service add callback notify
-	mu             sync.RWMutex
+	root          string
+	services      map[string]*service
+	knownNames    map[string]bool
+	namesProvided bool
+	client        etcdclient.Client
+	callbacks     map[string][]chan string // service add callback notify
+	mu            sync.RWMutex
 }
 
 // retries
@@ -53,16 +62,16 @@ type retryManager struct {
 }
 
 var (
-	defaultPool servicePool
-	retryMgr    retryManager
-	once        sync.Once
+	_defaultPool servicePool
+	_retryMgr    retryManager
+	once         sync.Once
 )
 
 // Init() ***MUST*** be called before using
 func Init(root string, hosts, names []string) {
 	once.Do(func() {
-		retryMgr.init()
-		defaultPool.init(root, hosts, names)
+		_retryMgr.init()
+		_defaultPool.init(root, hosts, names)
 		timerStart()
 	})
 }
@@ -71,10 +80,19 @@ func (p *retryManager) init() {
 	p.retries = make(map[string]int)
 }
 
+func pathJoin(params ...string) string {
+	return strings.Join(params, "/")
+}
+
+func pathDir(path string) string {
+	dir := filepath.Dir(path)
+	return strings.ReplaceAll(dir, "\\", "/")
+}
+
 func (p *retryManager) addRetry(key string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.retries[key] = DEFAULT_RETRIES
+	p.retries[key] = DefaultRetries
 	log.Debugf("Add connect retry:%v", key)
 }
 
@@ -110,8 +128,8 @@ func (p *retryManager) cycleCheck() {
 	}
 }
 
-func (p *servicePool) init(root string, hosts, names []string) {
-	// init etcd client
+func (p *servicePool) init(root string, hosts, serviceNames []string) {
+	// init etcd node
 	cfg := etcdclient.Config{
 		Endpoints: hosts,
 		Transport: etcdclient.DefaultTransport,
@@ -126,15 +144,15 @@ func (p *servicePool) init(root string, hosts, names []string) {
 
 	// init
 	p.services = make(map[string]*service)
-	p.known_names = make(map[string]bool)
+	p.knownNames = make(map[string]bool)
 
-	if len(names) > 0 {
-		p.names_provided = true
+	if len(serviceNames) > 0 {
+		p.namesProvided = true
 	}
 
-	log.Infof("all service names:%v", names)
-	for _, v := range names {
-		p.known_names[p.root+"/"+strings.TrimSpace(v)] = true
+	log.Infof("all service serviceNames:%v", serviceNames)
+	for _, v := range serviceNames {
+		p.knownNames[pathJoin(p.root, strings.TrimSpace(v))] = true
 		//fmt.Println("init:" ,p.root+"/"+strings.TrimSpace(v))
 	}
 
@@ -168,16 +186,8 @@ func (p *servicePool) connectAll(directory string) {
 	kAPI := etcdclient.NewKeysAPI(p.client)
 	// get the keys under directory
 	log.Infof("connecting services under:%v", directory)
-
-	var (
-		resp *etcdclient.Response
-		err  error
-	)
-
-	ctxfunc.Timeout1m(func(ctx context2.Context) {
-		resp, err = kAPI.Get(ctx, directory, &etcdclient.GetOptions{Recursive: true})
-	})
-
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	resp, err := kAPI.Get(ctx, directory, &etcdclient.GetOptions{Recursive: true})
 	if err != nil {
 		log.Error(err)
 		return
@@ -195,7 +205,9 @@ func (p *servicePool) connectAll(directory string) {
 	for _, node := range resp.Node.Nodes {
 		if node.Dir { // service directory
 			for _, service := range node.Nodes {
-				p.addService(service.Key, service.Value)
+				if ok := p.addService(service.Key, service.Value); !ok {
+					addRetry(service.Key)
+				}
 			}
 		}
 	}
@@ -233,29 +245,34 @@ func (p *servicePool) watcher() {
 // add a service
 func (p *servicePool) addService(key, value string) bool {
 	// name check
-	service_name := filepath.Dir(key)
-	service_name = strings.ReplaceAll(service_name, "\\", "/")
-	//fmt.Println("add:" , service_name)
-	if p.names_provided && !p.known_names[service_name] {
+	serviceName := pathDir(key)
+	if p.namesProvided && !p.knownNames[serviceName] {
 		return true
 	}
 
 	// try new service kind init
 	p.mu.Lock()
-	if p.services[service_name] == nil {
-		p.services[service_name] = &service{}
+	if p.services[serviceName] == nil {
+		p.services[serviceName] = &service{}
 	}
 	p.mu.Unlock()
 
+	info := &nodeInfo{}
+	err := json.Unmarshal([]byte(value), info)
+	if err != nil {
+		log.Errorf("addService nodeInfo Parse value:%v, err:%v", value, err)
+		return false
+	}
 	// create service connection
-	if conn, err := grpc.Dial(value, grpc.WithBlock(), grpc.WithInsecure(), grpc.WithTimeout(DEFAULT_TIMEOUT)); err == nil {
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	if conn, err := grpc.DialContext(ctx, value); err == nil {
 		p.mu.Lock()
 		defer p.mu.Unlock()
-		service := p.services[service_name]
-		service.clients = append(service.clients, client{key, conn})
-		for k := range p.callbacks[service_name] {
+		service := p.services[serviceName]
+		service.node = append(service.node, node{key, conn, info})
+		for k := range p.callbacks[serviceName] {
 			select {
-			case p.callbacks[service_name][k] <- key:
+			case p.callbacks[serviceName][k] <- key:
 			default:
 			}
 		}
@@ -274,7 +291,7 @@ func (p *servicePool) removeService(key string) {
 	defer p.mu.Unlock()
 	// name check
 	service_name := filepath.Dir(key)
-	if p.names_provided && !p.known_names[service_name] {
+	if p.namesProvided && !p.knownNames[service_name] {
 		return
 	}
 
@@ -286,10 +303,10 @@ func (p *servicePool) removeService(key string) {
 	}
 
 	// remove a service
-	for k := range service.clients {
-		if service.clients[k].key == key { // deletion
-			service.clients[k].conn.Close()
-			service.clients = append(service.clients[:k], service.clients[k+1:]...)
+	for k := range service.node {
+		if service.node[k].key == key { // deletion
+			service.node[k].conn.Close()
+			service.node = append(service.node[:k], service.node[k+1:]...)
 			log.Infof("service removed: %v", key)
 			return
 		}
@@ -309,15 +326,15 @@ func (p *servicePool) getServiceWithId(path string, id string) *grpc.ClientConn 
 	if service == nil {
 		return nil
 	}
-	if len(service.clients) == 0 {
+	if len(service.node) == 0 {
 		return nil
 	}
 
 	// loop find a service with id
-	fullpath := string(path) + "/" + id
-	for k := range service.clients {
-		if service.clients[k].key == fullpath {
-			return service.clients[k].conn
+	fullpath := pathJoin(path, id)
+	for k := range service.node {
+		if service.node[k].key == fullpath {
+			return service.node[k].conn
 		}
 	}
 
@@ -335,13 +352,29 @@ func (p *servicePool) getService(path string) (conn *grpc.ClientConn, key string
 		return nil, ""
 	}
 
-	if len(service.clients) == 0 {
+	if len(service.node) == 0 {
 		return nil, ""
 	}
 
 	// get a service in round-robind style,
-	idx := int(atomic.AddUint32(&service.idx, 1)) % len(service.clients)
-	return service.clients[idx].conn, service.clients[idx].key
+	idx := int(atomic.AddUint32(&service.idx, 1)) % len(service.node)
+	return service.node[idx].conn, service.node[idx].key
+}
+
+func (p *servicePool) getServiceWithHash(path string, hash int) (conn *grpc.ClientConn, key string) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	service := p.services[path]
+	if service == nil {
+		return nil, ""
+	}
+
+	if len(service.node) == 0 {
+		return nil, ""
+	}
+
+	idx := hash % len(service.node)
+	return service.node[idx].conn, service.node[idx].key
 }
 
 func (p *servicePool) getAllService(path string) (conns map[string]*grpc.ClientConn) {
@@ -352,15 +385,14 @@ func (p *servicePool) getAllService(path string) (conns map[string]*grpc.ClientC
 		return
 	}
 
-	if len(service.clients) == 0 {
+	if len(service.node) == 0 {
 		return
 	}
 
 	conns = make(map[string]*grpc.ClientConn)
-	for _, v := range service.clients {
+	for _, v := range service.node {
 		conns[v.key] = v.conn
 	}
-
 	return
 }
 
@@ -373,8 +405,8 @@ func (p *servicePool) registerCallback(path string, callback chan string) {
 
 	p.callbacks[path] = append(p.callbacks[path], callback)
 	if s, ok := p.services[path]; ok {
-		for k := range s.clients {
-			callback <- s.clients[k].key
+		for k := range s.node {
+			callback <- s.node[k].key
 		}
 	}
 	log.Infof("register callback on: %v", path)
@@ -401,15 +433,15 @@ func (p *servicePool) retryConn(key string) (del bool) {
 
 /////////////////////////////////////////////////////////////////
 func addRetry(key string) {
-	retryMgr.addRetry(key)
+	_retryMgr.addRetry(key)
 }
 
 func delRetry(key string) {
-	retryMgr.delRetry(key)
+	_retryMgr.delRetry(key)
 }
 
 func retryConn(key string) bool {
-	return defaultPool.retryConn(key)
+	return _defaultPool.retryConn(key)
 }
 
 func timerStart() {
@@ -419,7 +451,7 @@ func timerStart() {
 		for {
 			select {
 			case <-timer.C:
-				retryMgr.cycleCheck()
+				_retryMgr.cycleCheck()
 			}
 		}
 	}()
@@ -428,19 +460,28 @@ func timerStart() {
 /////////////////////////////////////////////////////////////////
 // Wrappers
 
+func GetServiceWithConsistentHash(key int64) (string, *nodeInfo, *grpc.ClientConn) {
+
+}
+
 func GetService(path string) (*grpc.ClientConn, string) {
-	conn, key := defaultPool.getService(defaultPool.root + "/" + path)
+	conn, key := _defaultPool.getService(pathJoin(_defaultPool.root, path))
 	return conn, key
 }
 
 func GetServiceWithId(path string, id string) *grpc.ClientConn {
-	return defaultPool.getServiceWithId(defaultPool.root+"/"+path, id)
+	return _defaultPool.getServiceWithId(pathJoin(_defaultPool.root, path), id)
+}
+
+func GetServiceWithHash(path string, value int) (*grpc.ClientConn, string) {
+	conn, key := _defaultPool.getServiceWithHash(pathJoin(_defaultPool.root, path), value)
+	return conn, key
 }
 
 func AllService(path string) map[string]*grpc.ClientConn {
-	return defaultPool.getAllService(defaultPool.root + "/" + path)
+	return _defaultPool.getAllService(pathJoin(_defaultPool.root, path))
 }
 
 func RegisterCallback(path string, callback chan string) {
-	defaultPool.registerCallback(defaultPool.root+"/"+path, callback)
+	_defaultPool.registerCallback(pathJoin(_defaultPool.root, path), callback)
 }

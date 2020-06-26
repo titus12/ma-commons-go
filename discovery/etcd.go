@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/titus12/ma-commons-go/utils"
@@ -64,7 +65,7 @@ func (e *etcdimpl) mustLoad() {
 		resp *etcdclient.Response
 		err  error
 	)
-	ctxfunc.Timeout30s(func(ctx context.Context) {
+	ctxfunc.Timeout(30*time.Second, func(ctx context.Context) {
 		resp, err = kAPI.Get(ctx, DefaultRoot, &etcdclient.GetOptions{Recursive: true})
 	})
 
