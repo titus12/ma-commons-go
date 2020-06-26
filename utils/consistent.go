@@ -1,4 +1,4 @@
-package utils
+package util
 
 import (
 	"errors"
@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-const DEFAULT_REPLICAS = 150
+const DefaultReplicas = 150
 
 type uints []uint32
 
@@ -21,61 +21,41 @@ func (x uints) Swap(i, j int)      { x[i], x[j] = x[j], x[i] }
 // 不存在任何节点，进行Get操作返回错误
 var ErrEmptyCircle = errors.New("empty circle")
 
-// 节点构建出来不允许外部进行修改
-type Node struct {
-	ip       string // ip地址
-	port     int    //端口
-	hostName string //节点名称
-	weight   int    //权重
-
-	ipAndPort string //避免重复组织
+type NodeKey struct {
+	key    string
+	weight int //权重
 }
 
-func (node *Node) Ip() string {
-	return node.ip
-}
-
-func (node *Node) Port() int {
-	return node.port
-}
-
-func (node *Node) HostName() string {
-	return node.hostName
-}
-
-func (node *Node) Weight() int {
+func (node *NodeKey) Weight() int {
 	return node.weight
 }
 
 // 节点的id就是ip:port
-func (node *Node) Id() string {
-	return node.ipAndPort
+func (node *NodeKey) Key() string {
+	return node.key
 }
 
-func (node *Node) String() string {
-	return fmt.Sprintf("{IP:%s,PORT:%d,NAME:%s,WEIGHT:%d", node.ip, node.port, node.hostName, node.weight)
+func (node *NodeKey) String() string {
+	return fmt.Sprintf("key: %s, weight: %d", node.key, node.weight)
 }
 
 // 构建一个节点出来
-func NewNode(ip string, port int, name string, weight int) *Node {
+func NewNodeKey(key string, weight int) *NodeKey {
 	if weight <= 0 {
 		weight = 1
 	}
-	return &Node{
-		ip:        ip,
-		port:      port,
-		hostName:  name,
-		weight:    weight,
-		ipAndPort: fmt.Sprintf("%s:%d", ip, port),
+	return &NodeKey{
+		key:    key,
+		weight: weight,
 	}
 }
 
 type Consistent struct {
-	circle           map[uint32]*Node //节点在环上的位置
-	members          map[string]*Node //真实节点，有多少真实节点
-	sortedHashes     uints            //给环上的hash排序
-	NumberOfReplicas int              //每个节点产生多少虚拟节点
-	count            int64            //有多少节点
+	circle           map[uint32]*NodeKey //节点在环上的位置
+	members          map[string]*NodeKey //真实节点，有多少真实节点
+	sortedHashes     uints               //给环上的hash排序
+	NumberOfReplicas int                 //每个节点产生多少虚拟节点
+	count            int64               //有多少节点
 	UseFnv           bool
 	sync.RWMutex
 }
@@ -83,9 +63,9 @@ type Consistent struct {
 // 构建一致性哈希对像
 func NewConsistent() *Consistent {
 	c := new(Consistent)
-	c.NumberOfReplicas = DEFAULT_REPLICAS
-	c.circle = make(map[uint32]*Node)
-	c.members = make(map[string]*Node)
+	c.NumberOfReplicas = DefaultReplicas
+	c.circle = make(map[uint32]*NodeKey)
+	c.members = make(map[string]*NodeKey)
 	return c
 }
 
@@ -95,20 +75,20 @@ func (c *Consistent) eltKey(elt string, idx int) string {
 }
 
 // 添加节点
-func (c *Consistent) Add(node *Node) bool {
+func (c *Consistent) Add(node *NodeKey) bool {
 	c.Lock()
 	defer c.Unlock()
 
 	// 已经加入过的就不需要加入了
-	if _, ok := c.members[node.ipAndPort]; ok {
+	if _, ok := c.members[node.key]; ok {
 		return false
 	}
 
 	count := c.NumberOfReplicas * node.Weight()
 	for i := 0; i < count; i++ {
-		c.circle[c.hashKey(c.eltKey(node.ipAndPort, i))] = node
+		c.circle[c.hashKey(c.eltKey(node.key, i))] = node
 	}
-	c.members[node.ipAndPort] = node
+	c.members[node.key] = node
 	c.updateSortedHashes()
 	c.count++
 
@@ -136,10 +116,10 @@ func (c *Consistent) Remove(ipAndPort string) {
 }
 
 // 所有节点
-func (c *Consistent) Members() []*Node {
+func (c *Consistent) Members() []*NodeKey {
 	c.RLock()
 	defer c.RUnlock()
-	var m []*Node
+	var m []*NodeKey
 	for _, v := range c.members {
 		m = append(m, v)
 	}
@@ -147,7 +127,7 @@ func (c *Consistent) Members() []*Node {
 }
 
 // 获取所在的节点
-func (c *Consistent) Get(name string) (*Node, error) {
+func (c *Consistent) Get(name string) (*NodeKey, error) {
 	c.RLock()
 	defer c.RUnlock()
 	if len(c.circle) == 0 {
@@ -171,7 +151,7 @@ func (c *Consistent) search(key uint32) (i int) {
 
 // 获取相邻二个节点
 // todo: 小心使用，未测试
-func (c *Consistent) GetTwo(name string) (*Node, *Node, error) {
+func (c *Consistent) GetTwo(name string) (*NodeKey, *NodeKey, error) {
 	c.RLock()
 	defer c.RUnlock()
 	if len(c.circle) == 0 {
@@ -186,7 +166,7 @@ func (c *Consistent) GetTwo(name string) (*Node, *Node, error) {
 	}
 
 	start := i
-	var b *Node
+	var b *NodeKey
 	for i = start + 1; i != start; i++ {
 		if i >= len(c.sortedHashes) {
 			i = 0
@@ -201,7 +181,7 @@ func (c *Consistent) GetTwo(name string) (*Node, *Node, error) {
 
 // 获取相领N个节点
 // TODO: 小心使用,未测试
-func (c *Consistent) GetN(name string, n int) ([]*Node, error) {
+func (c *Consistent) GetN(name string, n int) ([]*NodeKey, error) {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -217,7 +197,7 @@ func (c *Consistent) GetN(name string, n int) ([]*Node, error) {
 		key   = c.hashKey(name)
 		i     = c.search(key)
 		start = i
-		res   = make([]*Node, 0, n)
+		res   = make([]*NodeKey, 0, n)
 		elem  = c.circle[c.sortedHashes[i]]
 	)
 
@@ -278,7 +258,7 @@ func (c *Consistent) updateSortedHashes() {
 	c.sortedHashes = hashes
 }
 
-func sliceContainsMember(set []*Node, member *Node) bool {
+func sliceContainsMember(set []*NodeKey, member *NodeKey) bool {
 	for _, m := range set {
 		if m == member {
 			return true

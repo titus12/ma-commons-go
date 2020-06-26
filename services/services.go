@@ -17,42 +17,113 @@ import (
 )
 
 import (
-	"github.com/titus12/ma-commons-go/utils"
+	cons "github.com/titus12/ma-commons-go/utils"
 )
 
 const (
-	DefaultTimeout = 5 * time.Second
+	DefaultTimeout = 10 * time.Second
 	DefaultRetries = 6 // failed connection retries (for every ten seconds)
 )
 
-type nodeInfo struct {
+type nodeData struct {
 	addr   string `json:"addr"`
 	status int32  `json:"status"`
 }
 
 // a single connection
 type node struct {
-	key  string
-	conn *grpc.ClientConn
-	info *nodeInfo
+	key     string
+	conn    *grpc.ClientConn
+	data    *nodeData
+	isLocal bool
 }
 
 // a kind of service
 type service struct {
-	consistent *Consistent
-	node       []node
-	idx        uint32 // for round-robin purpose
+	consistent *cons.Consistent
+	node       []*node
+	mu         sync.RWMutex
+	idx        uint32
 }
 
-// all services
-type servicePool struct {
-	root          string
-	services      map[string]*service
-	knownNames    map[string]bool
-	namesProvided bool
-	client        etcdclient.Client
-	callbacks     map[string][]chan string // service add callback notify
-	mu            sync.RWMutex
+func (s *service) addNode(node *node) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.node = append(s.node, node)
+	s.consistent.Add(&cons.NodeKey{node.key, 1})
+}
+
+func (s *service) delNode(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k := range s.node {
+		if s.node[k].key == key { // deletion
+			s.consistent.Remove(key)
+			s.node[k].conn.Close()
+			s.node = append(s.node[:k], s.node[k+1:]...)
+			log.Infof("service removed: %v", key)
+			return
+		}
+	}
+}
+
+func (s *service) getNode(path string, id string) *node {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fullpath := pathJoin(path, id)
+	for k := range s.node {
+		if s.node[k].key == fullpath {
+			return s.node[k]
+		}
+	}
+	return nil
+}
+
+func (s *service) getNodeWithRoundRobin(path string) *node {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := len(s.node)
+	if count == 0 {
+		return nil
+	}
+	idx := int(atomic.AddUint32(&s.idx, 1)) % count
+	return s.node[idx]
+}
+
+func (s *service) getNodeWithHash(path string, hash int) *node {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := len(s.node)
+	if count == 0 {
+		return nil
+	}
+	idx := hash % len(s.node)
+	return s.node[idx]
+}
+
+func (s *service) getNodeWithConsistentHash(path string, id string) *node {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := len(s.node)
+	if count == 0 {
+		return nil
+	}
+	nodeKey, err := s.consistent.Get(id)
+	if err != nil {
+		return nil
+	}
+	for _, v := range s.node {
+		if v.key == nodeKey.Key() {
+			return v
+		}
+	}
+	return nil
+}
+
+func (s *service) getNodes(path string) []*node {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.node
 }
 
 // retries
@@ -68,10 +139,10 @@ var (
 )
 
 // Init() ***MUST*** be called before using
-func Init(root string, hosts, names []string) {
+func Init(root string, hosts, names []string, self string) {
 	once.Do(func() {
 		_retryMgr.init()
-		_defaultPool.init(root, hosts, names)
+		_defaultPool.init(root, hosts, names, self)
 		timerStart()
 	})
 }
@@ -128,7 +199,18 @@ func (p *retryManager) cycleCheck() {
 	}
 }
 
-func (p *servicePool) init(root string, hosts, serviceNames []string) {
+// all services
+type servicePool struct {
+	root          string
+	self          string
+	services      map[string]*service
+	knownNames    map[string]bool
+	namesProvided bool
+	client        etcdclient.Client
+	callbacks     sync.Map // service add callback notify
+}
+
+func (p *servicePool) init(root string, hosts, serviceNames []string, self string) {
 	// init etcd node
 	cfg := etcdclient.Config{
 		Endpoints: hosts,
@@ -141,7 +223,7 @@ func (p *servicePool) init(root string, hosts, serviceNames []string) {
 	}
 	p.client = c
 	p.root = root
-
+	p.self = self
 	// init
 	p.services = make(map[string]*service)
 	p.knownNames = make(map[string]bool)
@@ -153,6 +235,9 @@ func (p *servicePool) init(root string, hosts, serviceNames []string) {
 	log.Infof("all service serviceNames:%v", serviceNames)
 	for _, v := range serviceNames {
 		p.knownNames[pathJoin(p.root, strings.TrimSpace(v))] = true
+		service := &service{}
+		service.consistent = cons.NewConsistent()
+		p.services[v] = service
 		//fmt.Println("init:" ,p.root+"/"+strings.TrimSpace(v))
 	}
 
@@ -236,7 +321,7 @@ func (p *servicePool) watcher() {
 			}
 		case "delete":
 			key := resp.PrevNode.Key
-			p.removeService(key)
+			p.removeNode(key)
 			delRetry(key)
 		}
 	}
@@ -250,164 +335,111 @@ func (p *servicePool) addService(key, value string) bool {
 		return true
 	}
 
-	// try new service kind init
-	p.mu.Lock()
-	if p.services[serviceName] == nil {
-		p.services[serviceName] = &service{}
-	}
-	p.mu.Unlock()
-
-	info := &nodeInfo{}
+	info := &nodeData{}
 	err := json.Unmarshal([]byte(value), info)
 	if err != nil {
-		log.Errorf("addService nodeInfo Parse value:%v, err:%v", value, err)
+		log.Errorf("addService nodeData Parse value:%v, err:%v", value, err)
 		return false
 	}
 	// create service connection
-	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-	if conn, err := grpc.DialContext(ctx, value); err == nil {
-		p.mu.Lock()
-		defer p.mu.Unlock()
+	if key == p.self {
 		service := p.services[serviceName]
-		service.node = append(service.node, node{key, conn, info})
-		for k := range p.callbacks[serviceName] {
-			select {
-			case p.callbacks[serviceName][k] <- key:
-			default:
-			}
-		}
-		log.Infof("service added %v(%v)", key, value)
+		service.addNode(&node{key, nil, info, true})
+		log.Infof("local service added %v(%v)", key, value)
 		return true
 	} else {
-		log.Errorf("service connect %v(%v), Error: %v", key, value, err)
+		ctx, _ := context.WithTimeout(context.Background(), DefaultTimeout)
+		if conn, err := grpc.DialContext(ctx, value); err == nil {
+			service := p.services[serviceName]
+			service.addNode(&node{key, conn, info, false})
+			if callback, ok := p.callbacks.Load(key); ok {
+				call := callback.(func(key string))
+				call(key)
+			}
+			log.Infof("service added %v(%v)", key, value)
+			return true
+		} else {
+			log.Errorf("service connect %v(%v), Error: %v", key, value, err)
+		}
 	}
 
 	return false
 }
 
 // remove a service
-func (p *servicePool) removeService(key string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (p *servicePool) removeNode(key string) {
 	// name check
-	service_name := filepath.Dir(key)
-	if p.namesProvided && !p.knownNames[service_name] {
+	serviceName := filepath.Dir(key)
+	if p.namesProvided && !p.knownNames[serviceName] {
 		return
 	}
 
 	// check service kind
-	service := p.services[service_name]
+	service := p.services[serviceName]
 	if service == nil {
-		log.Errorf("service not exists: %v", service_name)
+		log.Errorf("service not exists: %v", serviceName)
 		return
 	}
 
-	// remove a service
-	for k := range service.node {
-		if service.node[k].key == key { // deletion
-			service.node[k].conn.Close()
-			service.node = append(service.node[:k], service.node[k+1:]...)
-			log.Infof("service removed: %v", key)
-			return
-		}
-	}
+	// remove a node
+	service.delNode(key)
 }
 
 // provide a specific key for a service, eg:
-// path:/backends/snowflake, id:s1
+// path:/backends/game, id:game001
 //
 // the full cannonical path for this service is:
-// 			/backends/snowflake/s1
-func (p *servicePool) getServiceWithId(path string, id string) *grpc.ClientConn {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+// /backends/game/game001 172.168.0.1:8000
+func (p *servicePool) getServiceWithId(path string, id string) *node {
 	// check existence
 	service := p.services[path]
 	if service == nil {
 		return nil
 	}
-	if len(service.node) == 0 {
-		return nil
-	}
-
-	// loop find a service with id
-	fullpath := pathJoin(path, id)
-	for k := range service.node {
-		if service.node[k].key == fullpath {
-			return service.node[k].conn
-		}
-	}
-
-	return nil
+	return service.getNode(path, id)
 }
 
 // get a service in round-robin style
-// especially useful for load-balance with state-less services
-func (p *servicePool) getService(path string) (conn *grpc.ClientConn, key string) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+// especially useful for load-balance with vars-less services
+func (p *servicePool) getServiceWithRoundRobin(path string) *node {
 	// check existence
 	service := p.services[path]
 	if service == nil {
-		return nil, ""
+		return nil
 	}
-
-	if len(service.node) == 0 {
-		return nil, ""
-	}
-
 	// get a service in round-robind style,
-	idx := int(atomic.AddUint32(&service.idx, 1)) % len(service.node)
-	return service.node[idx].conn, service.node[idx].key
+	return service.getNodeWithRoundRobin(path)
 }
 
-func (p *servicePool) getServiceWithHash(path string, hash int) (conn *grpc.ClientConn, key string) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+func (p *servicePool) getServiceWithHash(path string, hash int) *node {
 	service := p.services[path]
 	if service == nil {
-		return nil, ""
+		return nil
 	}
-
-	if len(service.node) == 0 {
-		return nil, ""
-	}
-
-	idx := hash % len(service.node)
-	return service.node[idx].conn, service.node[idx].key
+	return service.getNodeWithHash(path, hash)
 }
 
-func (p *servicePool) getAllService(path string) (conns map[string]*grpc.ClientConn) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+func (p *servicePool) getServiceWithConsistentHash(path string, key string) *node {
 	service := p.services[path]
 	if service == nil {
-		return
+		return nil
 	}
-
-	if len(service.node) == 0 {
-		return
-	}
-
-	conns = make(map[string]*grpc.ClientConn)
-	for _, v := range service.node {
-		conns[v.key] = v.conn
-	}
-	return
+	return service.getNodeWithConsistentHash(path, key)
 }
 
-func (p *servicePool) registerCallback(path string, callback chan string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.callbacks == nil {
-		p.callbacks = make(map[string][]chan string)
+func (p *servicePool) getServices(path string) []*node {
+	service := p.services[path]
+	if service == nil {
+		return nil
 	}
+	return service.getNodes(path)
+}
 
-	p.callbacks[path] = append(p.callbacks[path], callback)
-	if s, ok := p.services[path]; ok {
-		for k := range s.node {
-			callback <- s.node[k].key
-		}
+func (p *servicePool) registerCallback(path string, callback func(key string)) {
+	_, ok := p.callbacks.LoadOrStore(path, callback)
+	if ok {
+		log.Errorf("register callback on: %v duplicated", path)
+		return
 	}
 	log.Infof("register callback on: %v", path)
 }
@@ -460,28 +492,26 @@ func timerStart() {
 /////////////////////////////////////////////////////////////////
 // Wrappers
 
-func GetServiceWithConsistentHash(key int64) (string, *nodeInfo, *grpc.ClientConn) {
-
+func GetServiceWithConsistentHash(servieName string, key int64) *node {
+	return _defaultPool.getServiceWithConsistentHash(pathJoin(_defaultPool.root, servieName), key)
 }
 
-func GetService(path string) (*grpc.ClientConn, string) {
-	conn, key := _defaultPool.getService(pathJoin(_defaultPool.root, path))
-	return conn, key
+func getServiceWithRoundRobin(path string) *node {
+	return _defaultPool.getServiceWithRoundRobin(pathJoin(_defaultPool.root, path))
 }
 
-func GetServiceWithId(path string, id string) *grpc.ClientConn {
+func GetServiceWithId(path string, id string) *node {
 	return _defaultPool.getServiceWithId(pathJoin(_defaultPool.root, path), id)
 }
 
-func GetServiceWithHash(path string, value int) (*grpc.ClientConn, string) {
-	conn, key := _defaultPool.getServiceWithHash(pathJoin(_defaultPool.root, path), value)
-	return conn, key
+func GetServiceWithHash(path string, hash int) *node {
+	return _defaultPool.getServiceWithHash(pathJoin(_defaultPool.root, path), hash)
 }
 
-func AllService(path string) map[string]*grpc.ClientConn {
-	return _defaultPool.getAllService(pathJoin(_defaultPool.root, path))
+func AllService(path string) []*node {
+	return _defaultPool.getServices(pathJoin(_defaultPool.root, path))
 }
 
-func RegisterCallback(path string, callback chan string) {
+func RegisterCallback(path string, callback func(key string)) {
 	_defaultPool.registerCallback(pathJoin(_defaultPool.root, path), callback)
 }
