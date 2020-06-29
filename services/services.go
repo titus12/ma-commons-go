@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	etcdclient "github.com/coreos/etcd/client"
@@ -16,115 +15,12 @@ import (
 	"google.golang.org/grpc"
 )
 
-import (
-	cons "github.com/titus12/ma-commons-go/utils"
-)
-
 const (
 	DefaultTimeout = 10 * time.Second
 	DefaultRetries = 6 // failed connection retries (for every ten seconds)
 )
 
-type nodeData struct {
-	addr   string `json:"addr"`
-	status int32  `json:"status"`
-}
-
-// a single connection
-type node struct {
-	key     string
-	conn    *grpc.ClientConn
-	data    *nodeData
-	isLocal bool
-}
-
 // a kind of service
-type service struct {
-	consistent *cons.Consistent
-	node       []*node
-	mu         sync.RWMutex
-	idx        uint32
-}
-
-func (s *service) addNode(node *node) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.node = append(s.node, node)
-	s.consistent.Add(&cons.NodeKey{node.key, 1})
-}
-
-func (s *service) delNode(key string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for k := range s.node {
-		if s.node[k].key == key { // deletion
-			s.consistent.Remove(key)
-			s.node[k].conn.Close()
-			s.node = append(s.node[:k], s.node[k+1:]...)
-			log.Infof("service removed: %v", key)
-			return
-		}
-	}
-}
-
-func (s *service) getNode(path string, id string) *node {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	fullpath := pathJoin(path, id)
-	for k := range s.node {
-		if s.node[k].key == fullpath {
-			return s.node[k]
-		}
-	}
-	return nil
-}
-
-func (s *service) getNodeWithRoundRobin(path string) *node {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	count := len(s.node)
-	if count == 0 {
-		return nil
-	}
-	idx := int(atomic.AddUint32(&s.idx, 1)) % count
-	return s.node[idx]
-}
-
-func (s *service) getNodeWithHash(path string, hash int) *node {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	count := len(s.node)
-	if count == 0 {
-		return nil
-	}
-	idx := hash % len(s.node)
-	return s.node[idx]
-}
-
-func (s *service) getNodeWithConsistentHash(path string, id string) *node {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	count := len(s.node)
-	if count == 0 {
-		return nil
-	}
-	nodeKey, err := s.consistent.Get(id)
-	if err != nil {
-		return nil
-	}
-	for _, v := range s.node {
-		if v.key == nodeKey.Key() {
-			return v
-		}
-	}
-	return nil
-}
-
-func (s *service) getNodes(path string) []*node {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.node
-}
 
 // retries
 type retryManager struct {
@@ -235,9 +131,7 @@ func (p *servicePool) init(root string, hosts, serviceNames []string, self strin
 	log.Infof("all service serviceNames:%v", serviceNames)
 	for _, v := range serviceNames {
 		p.knownNames[pathJoin(p.root, strings.TrimSpace(v))] = true
-		service := &service{}
-		service.consistent = cons.NewConsistent()
-		p.services[v] = service
+		p.services[v] = newService()
 		//fmt.Println("init:" ,p.root+"/"+strings.TrimSpace(v))
 	}
 
@@ -349,7 +243,7 @@ func (p *servicePool) addService(key, value string) bool {
 		return true
 	} else {
 		ctx, _ := context.WithTimeout(context.Background(), DefaultTimeout)
-		if conn, err := grpc.DialContext(ctx, value); err == nil {
+		if conn, err := grpc.DialContext(ctx, value, grpc.WithBlock()); err == nil {
 			service := p.services[serviceName]
 			service.addNode(&node{key, conn, info, false})
 			if callback, ok := p.callbacks.Load(key); ok {
@@ -492,7 +386,7 @@ func timerStart() {
 /////////////////////////////////////////////////////////////////
 // Wrappers
 
-func GetServiceWithConsistentHash(servieName string, key int64) *node {
+func GetServiceWithConsistentHash(servieName string, key string) *node {
 	return _defaultPool.getServiceWithConsistentHash(pathJoin(_defaultPool.root, servieName), key)
 }
 
