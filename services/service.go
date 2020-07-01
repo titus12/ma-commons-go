@@ -19,7 +19,7 @@ var (
 type service struct {
 	stableConsistent   *cons.Consistent
 	unstableConsistent *cons.Consistent
-	node               []node
+	nodes              []node
 	mu                 sync.RWMutex
 	idx                uint32
 }
@@ -34,62 +34,69 @@ func newService() *service {
 func (s *service) addNode(node node) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.node = append(s.node, node)
+	for _, v := range s.nodes {
+		if v.key == node.key {
+			v.data = node.data
+			v.conn = node.conn
+			return
+		}
+	}
+	s.nodes = append(s.nodes, node)
 	s.stableConsistent.Add(&cons.NodeKey{node.key, 1})
 }
 
 func (s *service) delNode(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for k := range s.node {
-		if s.node[k].key == key { // deletion
+	for k, v := range s.nodes {
+		if v.key == key { // deletion
 			s.stableConsistent.Remove(key)
-			s.node[k].conn.Close()
-			s.node = append(s.node[:k], s.node[k+1:]...)
+			s.nodes = append(s.nodes[:k], s.nodes[k+1:]...)
+			v.conn.Close()
 			log.Infof("service removed: %v", key)
 			return
 		}
 	}
 }
 
-func (s *service) getNode(path string, id string) node {
+func (s *service) getNode(path string, id string) (node, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	fullpath := pathJoin(path, id)
-	for k := range s.node {
-		if s.node[k].key == fullpath {
-			return s.node[k]
+	fullPath := pathJoin(path, id)
+	for k := range s.nodes {
+		if s.nodes[k].key == fullPath {
+			return s.nodes[k], nil
 		}
 	}
-	return node{}
+	return node{}, fmt.Errorf("node %v id %v is not exist", path, id)
 }
 
 func (s *service) getNodeWithRoundRobin(path string) (node, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	count := len(s.node)
+	count := len(s.nodes)
 	if count == 0 {
 		return node{}, ErrNoNodes
 	}
 	idx := int(atomic.AddUint32(&s.idx, 1)) % count
-	return s.node[idx], nil
+	return s.nodes[idx], nil
 }
 
 func (s *service) getNodeWithHash(path string, hash int) (node, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	count := len(s.node)
+	count := len(s.nodes)
 	if count == 0 {
 		return node{}, ErrNoNodes
 	}
-	idx := hash % len(s.node)
-	return s.node[idx], nil
+	idx := hash % len(s.nodes)
+	return s.nodes[idx], nil
 }
 
 func (s *service) getNodeWithConsistentHash(path string, id string) (node, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	count := len(s.node)
+	count := len(s.nodes)
 	if count == 0 {
 		return node{}, ErrNoNodes
 	}
@@ -97,7 +104,7 @@ func (s *service) getNodeWithConsistentHash(path string, id string) (node, error
 	if err != nil {
 		return node{}, fmt.Errorf("consistent err %v", err)
 	}
-	for _, v := range s.node {
+	for _, v := range s.nodes {
 		if v.key == nodeKey.Key() {
 			return v, nil
 		}
@@ -108,6 +115,6 @@ func (s *service) getNodeWithConsistentHash(path string, id string) (node, error
 func (s *service) getNodes(path string) (nodes []node) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	copy(nodes, s.node)
+	copy(nodes, s.nodes)
 	return nodes
 }

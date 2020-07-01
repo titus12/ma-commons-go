@@ -2,6 +2,7 @@ package services
 
 import (
 	"encoding/json"
+	"fmt"
 	_ "fmt"
 	"os"
 	"path/filepath"
@@ -109,8 +110,9 @@ type servicePool struct {
 func (p *servicePool) init(root string, hosts, serviceNames []string, self string) {
 	// init etcd node
 	cfg := etcdclient.Config{
-		Endpoints: hosts,
-		Transport: etcdclient.DefaultTransport,
+		Endpoints:               hosts,
+		Transport:               etcdclient.DefaultTransport,
+		HeaderTimeoutPerRequest: time.Second,
 	}
 	c, err := etcdclient.New(cfg)
 	if err != nil {
@@ -165,7 +167,7 @@ func (p *servicePool) connectAll(directory string) {
 	kAPI := etcdclient.NewKeysAPI(p.client)
 	// get the keys under directory
 	log.Infof("connecting services under:%v", directory)
-	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, _ := context.WithTimeout(context.Background(), DefaultTimeout)
 	resp, err := kAPI.Get(ctx, directory, &etcdclient.GetOptions{Recursive: true})
 	if err != nil {
 		log.Error(err)
@@ -238,17 +240,23 @@ func (p *servicePool) addService(key, value string) bool {
 	// create service connection
 	if key == p.self {
 		service := p.services[serviceName]
-		service.addNode(&node{key, nil, info, true})
+		node := node{key, nil, *info, true}
+		service.addNode(node)
+		if callback, ok := p.callbacks.Load(key); ok {
+			call := callback.(func(key string, status int8))
+			call(key, info.status)
+		}
 		log.Infof("local service added %v(%v)", key, value)
 		return true
 	} else {
 		ctx, _ := context.WithTimeout(context.Background(), DefaultTimeout)
 		if conn, err := grpc.DialContext(ctx, value, grpc.WithBlock()); err == nil {
 			service := p.services[serviceName]
-			service.addNode(&node{key, conn, info, false})
+			node := node{key, conn, *info, false}
+			service.addNode(node)
 			if callback, ok := p.callbacks.Load(key); ok {
-				call := callback.(func(key string))
-				call(key)
+				call := callback.(func(key string, status int8))
+				call(key, info.status)
 			}
 			log.Infof("service added %v(%v)", key, value)
 			return true
@@ -284,52 +292,52 @@ func (p *servicePool) removeNode(key string) {
 //
 // the full cannonical path for this service is:
 // /backends/game/game001 172.168.0.1:8000
-func (p *servicePool) getServiceWithId(path string, id string) *node {
+func (p *servicePool) getServiceWithId(path string, id string) (node, error) {
 	// check existence
 	service := p.services[path]
 	if service == nil {
-		return nil
+		return node{}, fmt.Errorf("service %v is nil", path)
 	}
 	return service.getNode(path, id)
 }
 
 // get a service in round-robin style
 // especially useful for load-balance with vars-less services
-func (p *servicePool) getServiceWithRoundRobin(path string) *node {
+func (p *servicePool) getServiceWithRoundRobin(path string) (node, error) {
 	// check existence
 	service := p.services[path]
 	if service == nil {
-		return nil
+		return node{}, fmt.Errorf("service %v is nil", path)
 	}
 	// get a service in round-robind style,
 	return service.getNodeWithRoundRobin(path)
 }
 
-func (p *servicePool) getServiceWithHash(path string, hash int) *node {
+func (p *servicePool) getServiceWithHash(path string, hash int) (node, error) {
 	service := p.services[path]
 	if service == nil {
-		return nil
+		return node{}, fmt.Errorf("service %v is nil", path)
 	}
 	return service.getNodeWithHash(path, hash)
 }
 
-func (p *servicePool) getServiceWithConsistentHash(path string, key string) *node {
+func (p *servicePool) getServiceWithConsistentHash(path string, key string) (node, error) {
 	service := p.services[path]
 	if service == nil {
-		return nil
+		return node{}, fmt.Errorf("service %v is nil", path)
 	}
 	return service.getNodeWithConsistentHash(path, key)
 }
 
-func (p *servicePool) getServices(path string) []*node {
+func (p *servicePool) getServices(path string) ([]node, error) {
 	service := p.services[path]
 	if service == nil {
-		return nil
+		return nil, fmt.Errorf("service %v is nil", path)
 	}
-	return service.getNodes(path)
+	return service.getNodes(path), nil
 }
 
-func (p *servicePool) registerCallback(path string, callback func(key string)) {
+func (p *servicePool) registerCallback(path string, callback func(key string, status int8)) {
 	_, ok := p.callbacks.LoadOrStore(path, callback)
 	if ok {
 		log.Errorf("register callback on: %v duplicated", path)
@@ -386,26 +394,42 @@ func timerStart() {
 /////////////////////////////////////////////////////////////////
 // Wrappers
 
-func GetServiceWithConsistentHash(servieName string, key string) *node {
-	return _defaultPool.getServiceWithConsistentHash(pathJoin(_defaultPool.root, servieName), key)
+func GetServiceWithConsistentHash(servieName string, key string) (bool, nodeData, *grpc.ClientConn, error) {
+	node, err := _defaultPool.getServiceWithConsistentHash(pathJoin(_defaultPool.root, servieName), key)
+	if err != nil {
+		return false, nodeData{}, nil, err
+	}
+	return node.isLocal, node.data, node.conn, nil
 }
 
-func getServiceWithRoundRobin(path string) *node {
-	return _defaultPool.getServiceWithRoundRobin(pathJoin(_defaultPool.root, path))
+func getServiceWithRoundRobin(servieName string) (bool, nodeData, *grpc.ClientConn, error) {
+	node, err := _defaultPool.getServiceWithRoundRobin(pathJoin(_defaultPool.root, servieName))
+	if err != nil {
+		return false, nodeData{}, nil, err
+	}
+	return node.isLocal, node.data, node.conn, nil
 }
 
-func GetServiceWithId(path string, id string) *node {
-	return _defaultPool.getServiceWithId(pathJoin(_defaultPool.root, path), id)
+func GetServiceWithId(path string, id string) (bool, nodeData, *grpc.ClientConn, error) {
+	node, err := _defaultPool.getServiceWithId(pathJoin(_defaultPool.root, path), id)
+	if err != nil {
+		return false, nodeData{}, nil, err
+	}
+	return node.isLocal, node.data, node.conn, nil
 }
 
-func GetServiceWithHash(path string, hash int) *node {
-	return _defaultPool.getServiceWithHash(pathJoin(_defaultPool.root, path), hash)
+func GetServiceWithHash(path string, hash int) (bool, nodeData, *grpc.ClientConn, error) {
+	node, err := _defaultPool.getServiceWithHash(pathJoin(_defaultPool.root, path), hash)
+	if err != nil {
+		return false, nodeData{}, nil, err
+	}
+	return node.isLocal, node.data, node.conn, nil
 }
 
-func AllService(path string) []*node {
+func AllService(path string) ([]node, error) {
 	return _defaultPool.getServices(pathJoin(_defaultPool.root, path))
 }
 
-func RegisterCallback(path string, callback func(key string)) {
+func RegisterCallback(path string, callback func(key string, status int8)) {
 	_defaultPool.registerCallback(pathJoin(_defaultPool.root, path), callback)
 }

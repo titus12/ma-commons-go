@@ -4,13 +4,13 @@ import "google.golang.org/grpc"
 
 type nodeData struct {
 	addr   string `json:"addr"`
-	status int32  `json:"status"`
+	status int8   `json:"status"`
 }
 
 // a single connection
 type node struct {
 	key     string
 	conn    *grpc.ClientConn
-	data    *nodeData
+	data    nodeData
 	isLocal bool
 }
