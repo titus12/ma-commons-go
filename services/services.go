@@ -147,29 +147,29 @@ func (p *servicePool) init(root string, hosts, serviceNames []string, serviceNam
 	}
 }
 
-
 type work struct {
-	jobGroup chan *mvccpb.KeyValue
+	jobGroup    chan *mvccpb.KeyValue
 	resultGroup chan string
-	fn func()
+	job         func()
+	jobsNum     int
 }
-
 
 func (w *work) addJob(job *mvccpb.KeyValue) {
 	w.jobGroup <- job
 }
 
 func (w *work) result() string {
-	return <- w.resultGroup
+	return <-w.resultGroup
 }
 
-func (w *work) start(gonum int) {
-	for i:=0; i<gonum; i++ {
-		go w.fn()
+func (w *work) start(worker int) {
+	w.jobsNum = w.jobCount()
+	for i := 0; i < worker; i++ {
+		go w.job()
 	}
 }
 
-func (w *work) wait(ctx context.Context, jobsNum int) error {
+func (w *work) wait(ctx context.Context) error {
 	for {
 		select {
 		case key, ok := <-w.resultGroup:
@@ -177,7 +177,7 @@ func (w *work) wait(ctx context.Context, jobsNum int) error {
 				return fmt.Errorf("start resultServiceJob close")
 			}
 			log.Infof("start add service node %v", key)
-			if jobsNum--; jobsNum <= 0 {
+			if w.jobsNum--; w.jobsNum <= 0 {
 				return nil
 			}
 		case <-ctx.Done():
@@ -185,7 +185,6 @@ func (w *work) wait(ctx context.Context, jobsNum int) error {
 		}
 	}
 }
-
 
 func (w *work) jobCount() int {
 	return len(w.jobGroup)
@@ -197,7 +196,7 @@ func (p *servicePool) makeWork(queueSize int) (*work, func()) {
 		resultGroup: make(chan string, queueSize),
 	}
 
-	fn := func() {
+	job := func() {
 		for job := range w.jobGroup {
 			key := string(job.Key)
 			if p.addService(key, job.Value, false) {
@@ -208,7 +207,7 @@ func (p *servicePool) makeWork(queueSize int) (*work, func()) {
 		}
 	}
 
-	w.fn = fn
+	w.job = job
 
 	return w, func() {
 		close(w.jobGroup)
@@ -229,10 +228,9 @@ func (p *servicePool) startClient(ctx context.Context) error {
 		}
 	}
 
-	jobsNum := w.jobCount()
 	w.start(len(p.services))
 
-	return w.wait(ctx, jobsNum)
+	return w.wait(ctx)
 
 	//for {
 	//	select {
