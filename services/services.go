@@ -169,6 +169,24 @@ func (w *work) start(gonum int) {
 	}
 }
 
+func (w *work) wait(ctx context.Context, jobsNum int) error {
+	for {
+		select {
+		case key, ok := <-w.resultGroup:
+			if !ok {
+				return fmt.Errorf("start resultServiceJob close")
+			}
+			log.Infof("start add service node %v", key)
+			if jobsNum--; jobsNum <= 0 {
+				return nil
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+
 func (w *work) jobCount() int {
 	return len(w.jobGroup)
 }
@@ -214,44 +232,27 @@ func (p *servicePool) startClient(ctx context.Context) error {
 	jobsNum := w.jobCount()
 	w.start(len(p.services))
 
-	for {
-		select {
-		case key, ok := <-w.resultGroup:
-			if !ok {
-				return fmt.Errorf("startClient resultServiceJob close")
-			}
-			log.Infof("startClient add service node %v", key)
-			if jobsNum--; jobsNum <= 0 {
-				return nil
-			}
-		case <-ctx.Done():
-			return fmt.Errorf("startClient timeout")
-		}
-	}
+	return w.wait(ctx, jobsNum)
+
+	//for {
+	//	select {
+	//	case key, ok := <-w.resultGroup:
+	//		if !ok {
+	//			return fmt.Errorf("startClient resultServiceJob close")
+	//		}
+	//		log.Infof("startClient add service node %v", key)
+	//		if jobsNum--; jobsNum <= 0 {
+	//			return nil
+	//		}
+	//	case <-ctx.Done():
+	//		return fmt.Errorf("startClient timeout")
+	//	}
+	//}
 }
 
 func (p *servicePool) startServer(ctx context.Context, startup func(*service)) {
 	w, cancel := p.makeWork(256)
 	defer cancel()
-
-
-
-	//addServiceJob := make(chan mvccpb.KeyValue, 256)
-	//defer close(addServiceJob)
-	//resultServiceJob := make(chan string, 256)
-	//defer close(resultServiceJob)
-	//
-	//addServiceWork := func() {
-	//	for job := range addServiceJob {
-	//		key := string(job.Key)
-	//		if !p.addService(key, job.Value, false) {
-	//			addServiceJob <- job
-	//			continue
-	//		}
-	//		resultServiceJob <- key
-	//	}
-	//}
-
 
 	dirPath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
 
@@ -272,19 +273,9 @@ func (p *servicePool) startServer(ctx context.Context, startup func(*service)) {
 	w.start(jobsNum)
 
 	if jobsNum > 0 {
-		for {
-			select {
-			case key, ok := <-w.resultGroup:
-				if !ok {
-					log.Fatalf("startServer resultServiceJob close")
-				}
-				log.Infof("startServer add service node %v", key)
-				if jobsNum--; jobsNum <= 0 {
-					break
-				}
-			case <-ctx.Done():
-				log.Fatalf("startServer timeout")
-			}
+		err = w.wait(ctx, jobsNum)
+		if err != nil {
+			log.WithError(err).Fatalf("startServer fail")
 		}
 	}
 
