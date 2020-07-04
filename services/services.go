@@ -147,39 +147,76 @@ func (p *servicePool) init(root string, hosts, serviceNames []string, serviceNam
 	}
 }
 
-func (p *servicePool) startClient(ctx context.Context) error {
-	addServiceJob := make(chan mvccpb.KeyValue, 1024)
-	defer close(addServiceJob)
-	resultServiceJob := make(chan string, 1024)
-	defer close(resultServiceJob)
-	//wg := sync.WaitGroup{}
-	addServiceWork := func() {
-		for job := range addServiceJob {
+
+type work struct {
+	jobGroup chan *mvccpb.KeyValue
+	resultGroup chan string
+	fn func()
+}
+
+
+func (w *work) addJob(job *mvccpb.KeyValue) {
+	w.jobGroup <- job
+}
+
+func (w *work) result() string {
+	return <- w.resultGroup
+}
+
+func (w *work) start(gonum int) {
+	for i:=0; i<gonum; i++ {
+		go w.fn()
+	}
+}
+
+func (w *work) jobCount() int {
+	return len(w.jobGroup)
+}
+
+func (p *servicePool) makeWork(queueSize int) (*work, func()) {
+	w := &work{
+		jobGroup:    make(chan *mvccpb.KeyValue, queueSize),
+		resultGroup: make(chan string, queueSize),
+	}
+
+	fn := func() {
+		for job := range w.jobGroup {
 			key := string(job.Key)
-			if !p.addService(key, job.Value, false) {
-				addServiceJob <- job
+			if p.addService(key, job.Value, false) {
+				w.jobGroup <- job
 				continue
 			}
-			resultServiceJob <- key
+			w.resultGroup <- key
 		}
 	}
 
+	w.fn = fn
+
+	return w, func() {
+		close(w.jobGroup)
+		close(w.resultGroup)
+	}
+}
+
+func (p *servicePool) startClient(ctx context.Context) error {
+	w, cancel := p.makeWork(1024)
+	defer cancel()
 	for k, _ := range p.services {
 		if k == p.selfServiceName {
 			continue
 		}
 		go p.watcher(k)
-		if err := p.initNodesOfService(k, addServiceJob); err != nil {
+		if err := p.initNodesOfService(k, w); err != nil {
 			return err
 		}
 	}
-	jobsNum := len(addServiceJob)
-	for i := 0; i < len(p.services); i++ {
-		go addServiceWork()
-	}
+
+	jobsNum := w.jobCount()
+	w.start(len(p.services))
+
 	for {
 		select {
-		case key, ok := <-resultServiceJob:
+		case key, ok := <-w.resultGroup:
 			if !ok {
 				return fmt.Errorf("startClient resultServiceJob close")
 			}
@@ -194,39 +231,50 @@ func (p *servicePool) startClient(ctx context.Context) error {
 }
 
 func (p *servicePool) startServer(ctx context.Context, startup func(*service)) {
-	addServiceJob := make(chan mvccpb.KeyValue, 256)
-	defer close(addServiceJob)
-	resultServiceJob := make(chan string, 256)
-	defer close(resultServiceJob)
-	addServiceWork := func() {
-		for job := range addServiceJob {
-			key := string(job.Key)
-			if !p.addService(key, job.Value, false) {
-				addServiceJob <- job
-				continue
-			}
-			resultServiceJob <- key
-		}
-	}
+	w, cancel := p.makeWork(256)
+	defer cancel()
+
+
+
+	//addServiceJob := make(chan mvccpb.KeyValue, 256)
+	//defer close(addServiceJob)
+	//resultServiceJob := make(chan string, 256)
+	//defer close(resultServiceJob)
+	//
+	//addServiceWork := func() {
+	//	for job := range addServiceJob {
+	//		key := string(job.Key)
+	//		if !p.addService(key, job.Value, false) {
+	//			addServiceJob <- job
+	//			continue
+	//		}
+	//		resultServiceJob <- key
+	//	}
+	//}
+
+
 	dirPath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
+
 	mu, err := p.lock()
 	defer mu.Unlock(context.TODO())
+
 	if err != nil {
 		log.Fatalf("startServer lock err:%v", err)
 	}
 	go p.watcher(dirPath)
-	if err := p.initNodesOfService(dirPath, addServiceJob); err != nil {
+
+	if err := p.initNodesOfService(dirPath, w); err != nil {
 		log.Fatalf("startServer initNodesOfService err:%v", err)
 	}
+
 	service := p.services[dirPath]
-	jobsNum := len(addServiceJob)
-	for i := 0; i < jobsNum; i++ {
-		go addServiceWork()
-	}
+	jobsNum := w.jobCount()
+	w.start(jobsNum)
+
 	if jobsNum > 0 {
 		for {
 			select {
-			case key, ok := <-resultServiceJob:
+			case key, ok := <-w.resultGroup:
 				if !ok {
 					log.Fatalf("startServer resultServiceJob close")
 				}
@@ -241,6 +289,7 @@ func (p *servicePool) startServer(ctx context.Context, startup func(*service)) {
 	}
 
 	startup(service)
+
 	nodePath := joinPath(service.name, p.selfName)
 	if err := p.updateNode(nodePath, StatusServicePending); err != nil {
 		log.Fatalf("updateNode %v %v err %v", nodePath, StatusServicePending, err)
@@ -289,7 +338,7 @@ func (p *servicePool) watcher(serviceName string) {
 }
 
 // connect to all services
-func (p *servicePool) initNodesOfService(servicePath string, ch chan mvccpb.KeyValue) error {
+func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 	kAPI := etcdclient.NewKV(p.client)
 	// get the keys under directory
 	log.Infof("initNodesOfService service under:%v", servicePath)
@@ -310,7 +359,8 @@ func (p *servicePool) initNodesOfService(servicePath string, ch chan mvccpb.KeyV
 		if info.status == StatusServiceNone {
 			continue
 		}
-		ch <- *ev
+		w.addJob(ev)
+		//ch <- *ev
 		/*path := string(ev.Key)
 		if ok := p.addService(path, ev.Value); !ok {
 			addRetry(path)
