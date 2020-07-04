@@ -2,14 +2,15 @@ package vars
 
 import (
 	"fmt"
+	"github.com/titus12/ma-commons-go/services"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 
-	etcdclient "github.com/coreos/etcd/client"
+	etcdclient "github.com/coreos/etcd/clientv3"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/net/context"
+	_ "golang.org/x/net/context"
 )
 
 const (
@@ -31,7 +32,7 @@ func Init(root, serviceId string, etcdHosts []string) {
 type server struct {
 	root          string
 	serviceId     string
-	client        etcdclient.Client
+	client        *etcdclient.Client
 	numberPrefixs map[string]bool
 	numberDatas   map[string]map[string]int
 	stringDatas   map[string]map[string]string
@@ -47,8 +48,8 @@ func (p *server) init(root, serviceId string, etcdHosts []string) {
 	p.stringDatas = make(map[string]map[string]string)
 
 	cfg := etcdclient.Config{
-		Endpoints: etcdHosts,
-		Transport: etcdclient.DefaultTransport,
+		Endpoints:   etcdHosts,
+		DialTimeout: services.DefaultTimeout,
 	}
 
 	c, err := etcdclient.New(cfg)
@@ -59,10 +60,10 @@ func (p *server) init(root, serviceId string, etcdHosts []string) {
 
 	p.client = c
 
-	p.loadNumberPrefixs(p.root + NUMBER_PREFIX_NODE)
+	//p.loadNumberPrefixs(p.root + NUMBER_PREFIX_NODE)
 
 	//
-	p.load()
+	//p.load()
 }
 
 func (p *server) isNumberType(name string) bool {
@@ -195,6 +196,7 @@ func (p *server) set(key, value string) {
 	}
 }
 
+/*
 func (p *server) update(key, value string) {
 	kAPI := etcdclient.NewKeysAPI(p.client)
 
@@ -299,3 +301,4 @@ func ExecuteGroupStr(category string, f func(map[string]string)) {
 func SetServiceVar(key, value string) {
 	defaultServer.update(defaultServer.root+"/"+key+"/"+defaultServer.serviceId, value)
 }
+*/

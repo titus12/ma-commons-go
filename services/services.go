@@ -4,13 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	_ "fmt"
+	"github.com/coreos/etcd/clientv3/concurrency"
+	"github.com/coreos/etcd/mvcc/mvccpb"
+	"github.com/titus12/ma-commons-go/utils"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	etcdclient "github.com/coreos/etcd/client"
+	etcdclient "github.com/coreos/etcd/clientv3"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -18,7 +21,7 @@ import (
 
 const (
 	DefaultTimeout = 10 * time.Second
-	DefaultRetries = 6 // failed connection retries (for every ten seconds)
+	DefaultRetries = 1440 // failed connection retries (for every ten seconds)
 )
 
 // a kind of service
@@ -36,10 +39,10 @@ var (
 )
 
 // Init() ***MUST*** be called before using
-func Init(root string, hosts, names []string, self string) {
+func Init(root string, hosts, serviceNames []string, selfServiceName, selfName string) {
 	once.Do(func() {
 		_retryMgr.init()
-		_defaultPool.init(root, hosts, names, self)
+		_defaultPool.init(root, hosts, serviceNames, selfServiceName, selfName)
 		timerStart()
 	})
 }
@@ -48,13 +51,18 @@ func (p *retryManager) init() {
 	p.retries = make(map[string]int)
 }
 
-func pathJoin(params ...string) string {
+func joinPath(params ...string) string {
 	return strings.Join(params, "/")
 }
 
-func pathDir(path string) string {
+func getDir(path string) string {
 	dir := filepath.Dir(path)
 	return strings.ReplaceAll(dir, "\\", "/")
+}
+
+func getFileName(path string) string {
+	dir := filepath.Base(path)
+	return dir
 }
 
 func (p *retryManager) addRetry(key string) {
@@ -77,7 +85,7 @@ func (p *retryManager) delRetry(key string) {
 func (p *retryManager) cycleCheck() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
+	defer utils.PrintPanicStack()
 	for key, value := range p.retries {
 		if value > 0 {
 			log.Debugf("Trying connecting:%v ......", key)
@@ -98,21 +106,21 @@ func (p *retryManager) cycleCheck() {
 
 // all services
 type servicePool struct {
-	root          string
-	self          string
-	services      map[string]*service
-	knownNames    map[string]bool
-	namesProvided bool
-	client        etcdclient.Client
-	callbacks     sync.Map // service add callback notify
+	root            string
+	selfName        string
+	selfServiceName string
+	services        map[string]*service
+	knownNames      map[string]bool
+	namesProvided   bool
+	client          *etcdclient.Client
+	callbacks       sync.Map // service add callback notify
 }
 
-func (p *servicePool) init(root string, hosts, serviceNames []string, self string) {
+func (p *servicePool) init(root string, hosts, serviceNames []string, serviceNameProvided, selfName string) {
 	// init etcd node
 	cfg := etcdclient.Config{
-		Endpoints:               hosts,
-		Transport:               etcdclient.DefaultTransport,
-		HeaderTimeoutPerRequest: time.Second,
+		Endpoints:   hosts,
+		DialTimeout: DefaultTimeout,
 	}
 	c, err := etcdclient.New(cfg)
 	if err != nil {
@@ -120,8 +128,9 @@ func (p *servicePool) init(root string, hosts, serviceNames []string, self strin
 		os.Exit(-1)
 	}
 	p.client = c
-	p.root = root
-	p.self = self
+	p.root = "/root" + root
+	p.selfServiceName = serviceNameProvided
+	p.selfName = selfName
 	// init
 	p.services = make(map[string]*service)
 	p.knownNames = make(map[string]bool)
@@ -132,159 +141,281 @@ func (p *servicePool) init(root string, hosts, serviceNames []string, self strin
 
 	log.Infof("all service serviceNames:%v", serviceNames)
 	for _, v := range serviceNames {
-		p.knownNames[pathJoin(p.root, strings.TrimSpace(v))] = true
-		p.services[v] = newService()
-		//fmt.Println("init:" ,p.root+"/"+strings.TrimSpace(v))
+		dirPath := joinPath(p.root, strings.TrimSpace(v))
+		p.knownNames[dirPath] = true
+		p.services[dirPath] = newService(v)
 	}
-
-	// start connection
-	p.connectAll(p.root)
 }
 
-// get stored service name
-func (p *servicePool) loadNames(filepath string) []string {
-	kAPI := etcdclient.NewKeysAPI(p.client)
-	// get the keys under directory
-	log.Infof("reading names:%v", filepath)
-	resp, err := kAPI.Get(context.Background(), filepath, nil)
-	if err != nil {
-		log.Error(err)
-		return nil
+func (p *servicePool) startClient(ctx context.Context) error {
+	addServiceJob := make(chan mvccpb.KeyValue, 1024)
+	defer close(addServiceJob)
+	resultServiceJob := make(chan string, 1024)
+	defer close(resultServiceJob)
+	//wg := sync.WaitGroup{}
+	addServiceWork := func() {
+		for job := range addServiceJob {
+			key := string(job.Key)
+			if !p.addService(key, job.Value, false) {
+				addServiceJob <- job
+				continue
+			}
+			resultServiceJob <- key
+		}
 	}
 
-	// validation check
-	if resp.Node.Dir {
-		log.Error("names is not a file")
-		return nil
+	for k, _ := range p.services {
+		if k == p.selfServiceName {
+			continue
+		}
+		go p.watcher(k)
+		if err := p.initNodesOfService(k, addServiceJob); err != nil {
+			return err
+		}
 	}
-
-	// split names
-	return strings.Split(resp.Node.Value, "\n")
+	jobsNum := len(addServiceJob)
+	for i := 0; i < len(p.services); i++ {
+		go addServiceWork()
+	}
+	for {
+		select {
+		case key, ok := <-resultServiceJob:
+			if !ok {
+				return fmt.Errorf("startClient resultServiceJob close")
+			}
+			log.Infof("startClient add service node %v", key)
+			if jobsNum--; jobsNum <= 0 {
+				return nil
+			}
+		case <-ctx.Done():
+			return fmt.Errorf("startClient timeout")
+		}
+	}
 }
 
-// connect to all services
-func (p *servicePool) connectAll(directory string) {
-	kAPI := etcdclient.NewKeysAPI(p.client)
-	// get the keys under directory
-	log.Infof("connecting services under:%v", directory)
-	ctx, _ := context.WithTimeout(context.Background(), DefaultTimeout)
-	resp, err := kAPI.Get(ctx, directory, &etcdclient.GetOptions{Recursive: true})
+func (p *servicePool) startServer(ctx context.Context, startup func(*service)) {
+	addServiceJob := make(chan mvccpb.KeyValue, 256)
+	defer close(addServiceJob)
+	resultServiceJob := make(chan string, 256)
+	defer close(resultServiceJob)
+	addServiceWork := func() {
+		for job := range addServiceJob {
+			key := string(job.Key)
+			if !p.addService(key, job.Value, false) {
+				addServiceJob <- job
+				continue
+			}
+			resultServiceJob <- key
+		}
+	}
+	dirPath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
+	mu, err := p.lock()
+	defer mu.Unlock(context.TODO())
 	if err != nil {
-		log.Error(err)
-		return
+		log.Fatalf("startServer lock err:%v", err)
+	}
+	go p.watcher(dirPath)
+	if err := p.initNodesOfService(dirPath, addServiceJob); err != nil {
+		log.Fatalf("startServer initNodesOfService err:%v", err)
+	}
+	service := p.services[dirPath]
+	jobsNum := len(addServiceJob)
+	for i := 0; i < jobsNum; i++ {
+		go addServiceWork()
+	}
+	if jobsNum > 0 {
+		for {
+			select {
+			case key, ok := <-resultServiceJob:
+				if !ok {
+					log.Fatalf("startServer resultServiceJob close")
+				}
+				log.Infof("startServer add service node %v", key)
+				if jobsNum--; jobsNum <= 0 {
+					break
+				}
+			case <-ctx.Done():
+				log.Fatalf("startServer timeout")
+			}
+		}
 	}
 
-	// validation check
-	if !resp.Node.Dir {
-		log.Errorf("node %v not a directory", directory)
-		return
+	startup(service)
+	nodePath := joinPath(service.name, p.selfName)
+	if err := p.updateNode(nodePath, StatusServicePending); err != nil {
+		log.Fatalf("updateNode %v %v err %v", nodePath, StatusServicePending, err)
 	}
 
-	// do not need to wait for exists connections complete
-	go p.watcher()
+	//check StatusServiceRunning
 
-	for _, node := range resp.Node.Nodes {
-		if node.Dir { // service directory
-			for _, service := range node.Nodes {
-				if ok := p.addService(service.Key, service.Value); !ok {
-					addRetry(service.Key)
+}
+
+func (p *servicePool) isCompleted() bool {
+	dirPath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
+	service := p.services[dirPath]
+	return service.isCompleted(p.selfName)
+}
+
+// watcher for data change in etcd directory
+func (p *servicePool) watcher(serviceName string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for {
+		path := joinPath(p.root, strings.TrimSpace(serviceName))
+		wc := p.client.Watch(ctx, path, etcdclient.WithPrefix())
+		if wc == nil {
+			log.Errorf("no watcher channel %v", path)
+			continue
+		}
+		for wresp := range wc {
+			for _, ev := range wresp.Events {
+				log.Debugf("watcher %v %v:%v", ev.Type, string(ev.Kv.Key), ev.Kv.Value)
+				switch ev.Type {
+				case etcdclient.EventTypePut:
+					key := string(ev.Kv.Key)
+					if ok := p.addService(key, ev.Kv.Value, true); !ok {
+						addRetry(key)
+					}
+				case etcdclient.EventTypeDelete:
+					key := string(ev.PrevKv.Key)
+					p.removeNode(key)
+					delRetry(key)
+				default:
+					log.Errorf("watch event %v kv %v", ev.Type, ev.Kv)
 				}
 			}
 		}
 	}
-	log.Info("services add complete")
 }
 
-// watcher for data change in etcd directory
-func (p *servicePool) watcher() {
-	kAPI := etcdclient.NewKeysAPI(p.client)
-	w := kAPI.Watcher(p.root, &etcdclient.WatcherOptions{Recursive: true})
-	for {
-		resp, err := w.Next(context.Background())
-		if err != nil {
-			log.Error(err)
-			continue
-		}
-		if resp.Node.Dir {
-			continue
-		}
-
-		//log.Debugf("Watcher: %v %v %v", resp.Action, resp.Node.Key, resp.Node.Value)
-		switch resp.Action {
-		case "set", "create", "update", "compareAndSwap":
-			if ok := p.addService(resp.Node.Key, resp.Node.Value); !ok {
-				addRetry(resp.Node.Key)
-			}
-		case "delete":
-			key := resp.PrevNode.Key
-			p.removeNode(key)
-			delRetry(key)
-		}
+// connect to all services
+func (p *servicePool) initNodesOfService(servicePath string, ch chan mvccpb.KeyValue) error {
+	kAPI := etcdclient.NewKV(p.client)
+	// get the keys under directory
+	log.Infof("initNodesOfService service under:%v", servicePath)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
+	resp, err := kAPI.Get(ctx, servicePath, etcdclient.WithPrefix())
+	cancel()
+	if err != nil {
+		log.Error(err)
+		return err
 	}
+
+	for _, ev := range resp.Kvs {
+		info := &nodeData{}
+		err := json.Unmarshal(ev.Value, info)
+		if err != nil {
+			return fmt.Errorf("initNodesOfService nodeData Parse value:%v, err:%v", string(ev.Key), err)
+		}
+		if info.status == StatusServiceNone {
+			continue
+		}
+		ch <- *ev
+		/*path := string(ev.Key)
+		if ok := p.addService(path, ev.Value); !ok {
+			addRetry(path)
+		}
+		fmt.Printf("%s : %s\n", path, ev.Value)*/
+	}
+	log.Infof("initNodesOfService %v complete", servicePath)
+	return nil
 }
 
 // add a service
-func (p *servicePool) addService(key, value string) bool {
+func (p *servicePool) addService(key string, value []byte, iscallback bool) bool {
 	// name check
-	serviceName := pathDir(key)
-	if p.namesProvided && !p.knownNames[serviceName] {
+	dirPath := getDir(key)
+	if p.namesProvided && !p.knownNames[dirPath] {
 		return true
 	}
 
 	info := &nodeData{}
-	err := json.Unmarshal([]byte(value), info)
+	err := json.Unmarshal(value, info)
 	if err != nil {
 		log.Errorf("addService nodeData Parse value:%v, err:%v", value, err)
 		return false
 	}
-	// create service connection
-	if key == p.self {
-		service := p.services[serviceName]
-		node := node{key, nil, *info, true}
-		service.addNode(node)
-		if callback, ok := p.callbacks.Load(key); ok {
-			call := callback.(func(key string, status int8))
-			call(key, info.status)
-		}
-		log.Infof("local service added %v(%v)", key, value)
+	if info.status == StatusServiceNone {
 		return true
+	}
+	nodeName := getFileName(key)
+	// create service connection
+	if nodeName == p.selfName {
+		service := p.services[dirPath]
+		node := node{nodeName, nil, *info, true, false}
+		err = service.upsertNode(node)
+		if err != nil {
+			log.Errorf("addService local %v - %v err %v", key, value, err)
+			return false
+		}
+		log.Infof("addService local %v - %v", key, value)
 	} else {
-		ctx, _ := context.WithTimeout(context.Background(), DefaultTimeout)
-		if conn, err := grpc.DialContext(ctx, value, grpc.WithBlock()); err == nil {
-			service := p.services[serviceName]
-			node := node{key, conn, *info, false}
-			service.addNode(node)
-			if callback, ok := p.callbacks.Load(key); ok {
-				call := callback.(func(key string, status int8))
-				call(key, info.status)
-			}
-			log.Infof("service added %v(%v)", key, value)
-			return true
-		} else {
-			log.Errorf("service connect %v(%v), Error: %v", key, value, err)
+		ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
+		conn, err := grpc.DialContext(ctx, info.addr, grpc.WithBlock())
+		cancel()
+		if err != nil {
+			log.Errorf("service connect %v - %v, Error: %v", key, value, err)
+			return false
+		}
+		service := p.services[dirPath]
+		node := node{nodeName, conn, *info, false, false}
+		err = service.upsertNode(node)
+		if err != nil {
+			log.Errorf("addService remote %v - %v err %v", key, value, err)
+			return false
+		}
+		log.Infof("addService remote %v - %v", key, value)
+	}
+	if iscallback {
+		if callback, ok := p.callbacks.Load(nodeName); ok {
+			call := callback.(func(key string, status int8))
+			call(nodeName, info.status)
 		}
 	}
-
-	return false
+	return true
 }
 
 // remove a service
 func (p *servicePool) removeNode(key string) {
 	// name check
-	serviceName := filepath.Dir(key)
-	if p.namesProvided && !p.knownNames[serviceName] {
+	dirPath := filepath.Dir(key)
+	if p.namesProvided && !p.knownNames[dirPath] {
 		return
 	}
 
 	// check service kind
-	service := p.services[serviceName]
+	service := p.services[dirPath]
 	if service == nil {
-		log.Errorf("service not exists: %v", serviceName)
+		log.Errorf("service not exists: %v", dirPath)
 		return
 	}
-
+	nodeName := getFileName(key)
 	// remove a node
-	service.delNode(key)
+	service.delNode(nodeName)
+}
+
+func (p *servicePool) updateNode(nodePath string, status int8) error {
+	dirPath := filepath.Dir(nodePath)
+	if p.namesProvided && !p.knownNames[dirPath] {
+		return nil
+	}
+	nodeName := getFileName(nodePath)
+	service := p.services[dirPath]
+	node, err := service.getNode(nodeName)
+	if err != nil {
+		return fmt.Errorf("updateNode err %v", err)
+	}
+	data, err := json.Marshal(node.data)
+	if err != nil {
+		return fmt.Errorf("updateNode nodeData Marshal value:%v, err:%v", node.data, err)
+	}
+	kAPI := etcdclient.NewKV(p.client)
+	// put the keys under directory
+	log.Infof("updateNode under:%v", nodePath)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
+	_, err = kAPI.Put(ctx, nodePath, string(data))
+	cancel()
+	return err
 }
 
 // provide a specific key for a service, eg:
@@ -298,7 +429,7 @@ func (p *servicePool) getServiceWithId(path string, id string) (node, error) {
 	if service == nil {
 		return node{}, fmt.Errorf("service %v is nil", path)
 	}
-	return service.getNode(path, id)
+	return service.getNode(id)
 }
 
 // get a service in round-robin style
@@ -347,22 +478,48 @@ func (p *servicePool) registerCallback(path string, callback func(key string, st
 }
 
 func (p *servicePool) retryConn(key string) (del bool) {
-	kAPI := etcdclient.NewKeysAPI(p.client)
-	resp, err := kAPI.Get(context.Background(), key, nil)
-	if err != nil {
+	kAPI := etcdclient.NewKV(p.client)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
+	resp, err := kAPI.Get(ctx, key)
+	cancel()
+	if err != nil || len(resp.Kvs) == 0 {
 		del = true
 		log.Error(err)
 		return
 	}
 
-	if resp.Node.Dir {
-		del = true
-		log.Errorf("%v is not a node", key)
-		return
-	}
-
-	del = p.addService(key, resp.Node.Value)
+	del = p.addService(key, resp.Kvs[0].Value, true)
 	return
+}
+
+func (p *servicePool) lock() (*concurrency.Mutex, error) {
+	sess, err := concurrency.NewSession(_defaultPool.client)
+	if err != nil {
+		return nil, err
+	}
+	defer sess.Close()
+	m1 := concurrency.NewMutex(sess, "/lock-"+p.selfServiceName+"/")
+	err = m1.Lock(context.TODO())
+	if err != nil {
+		return nil, err
+	}
+	return m1, nil
+}
+
+func (p *servicePool) lockDo(servieName string, f func(string)) error {
+	sess, err := concurrency.NewSession(_defaultPool.client)
+	if err != nil {
+		return err
+	}
+	defer sess.Close()
+	m1 := concurrency.NewMutex(sess, "/lock-"+servieName+"/")
+	err = m1.Lock(context.TODO())
+	if err != nil {
+		return err
+	}
+	defer m1.Unlock(context.TODO())
+	f(servieName)
+	return nil
 }
 
 /////////////////////////////////////////////////////////////////
@@ -394,8 +551,20 @@ func timerStart() {
 /////////////////////////////////////////////////////////////////
 // Wrappers
 
+func SyncStartClient(ctx context.Context) error {
+	return _defaultPool.startClient(ctx)
+}
+
+func SyncStartService(ctx context.Context, startup func(*service)) {
+	_defaultPool.startServer(ctx, startup)
+}
+
+func GetService(serviceName string) *service {
+	return _defaultPool.services[serviceName]
+}
+
 func GetServiceWithConsistentHash(servieName string, key string) (bool, nodeData, *grpc.ClientConn, error) {
-	node, err := _defaultPool.getServiceWithConsistentHash(pathJoin(_defaultPool.root, servieName), key)
+	node, err := _defaultPool.getServiceWithConsistentHash(joinPath(_defaultPool.root, servieName), key)
 	if err != nil {
 		return false, nodeData{}, nil, err
 	}
@@ -403,23 +572,23 @@ func GetServiceWithConsistentHash(servieName string, key string) (bool, nodeData
 }
 
 func getServiceWithRoundRobin(servieName string) (bool, nodeData, *grpc.ClientConn, error) {
-	node, err := _defaultPool.getServiceWithRoundRobin(pathJoin(_defaultPool.root, servieName))
+	node, err := _defaultPool.getServiceWithRoundRobin(joinPath(_defaultPool.root, servieName))
 	if err != nil {
 		return false, nodeData{}, nil, err
 	}
 	return node.isLocal, node.data, node.conn, nil
 }
 
-func GetServiceWithId(path string, id string) (bool, nodeData, *grpc.ClientConn, error) {
-	node, err := _defaultPool.getServiceWithId(pathJoin(_defaultPool.root, path), id)
+func GetServiceWithId(servieName string, id string) (bool, nodeData, *grpc.ClientConn, error) {
+	node, err := _defaultPool.getServiceWithId(joinPath(_defaultPool.root, servieName), id)
 	if err != nil {
 		return false, nodeData{}, nil, err
 	}
 	return node.isLocal, node.data, node.conn, nil
 }
 
-func GetServiceWithHash(path string, hash int) (bool, nodeData, *grpc.ClientConn, error) {
-	node, err := _defaultPool.getServiceWithHash(pathJoin(_defaultPool.root, path), hash)
+func GetServiceWithHash(servieName string, hash int) (bool, nodeData, *grpc.ClientConn, error) {
+	node, err := _defaultPool.getServiceWithHash(joinPath(_defaultPool.root, servieName), hash)
 	if err != nil {
 		return false, nodeData{}, nil, err
 	}
@@ -427,9 +596,9 @@ func GetServiceWithHash(path string, hash int) (bool, nodeData, *grpc.ClientConn
 }
 
 func AllService(path string) ([]node, error) {
-	return _defaultPool.getServices(pathJoin(_defaultPool.root, path))
+	return _defaultPool.getServices(joinPath(_defaultPool.root, path))
 }
 
 func RegisterCallback(path string, callback func(key string, status int8)) {
-	_defaultPool.registerCallback(pathJoin(_defaultPool.root, path), callback)
+	_defaultPool.registerCallback(joinPath(_defaultPool.root, path), callback)
 }

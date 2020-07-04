@@ -13,4 +13,5 @@ type node struct {
 	conn    *grpc.ClientConn
 	data    nodeData
 	isLocal bool
+	ready   bool
 }

@@ -96,21 +96,21 @@ func (c *Consistent) Add(node *NodeKey) bool {
 }
 
 // 移除节点，节点id=ipAndPort
-func (c *Consistent) Remove(ipAndPort string) {
+func (c *Consistent) Remove(key string) {
 	c.Lock()
 	defer c.Unlock()
 
 	// 如果不存在节点，直接返回
-	if _, ok := c.members[ipAndPort]; !ok {
+	if _, ok := c.members[key]; !ok {
 		return
 	}
 
-	node := c.members[ipAndPort]
+	node := c.members[key]
 	count := c.NumberOfReplicas * node.Weight()
 	for i := 0; i < count; i++ {
-		delete(c.circle, c.hashKey(c.eltKey(ipAndPort, i)))
+		delete(c.circle, c.hashKey(c.eltKey(key, i)))
 	}
-	delete(c.members, ipAndPort)
+	delete(c.members, key)
 	c.updateSortedHashes()
 	c.count--
 }
