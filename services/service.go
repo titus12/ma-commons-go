@@ -39,10 +39,6 @@ func newService(name string) *service {
 	return service
 }
 
-func (s *service) updateNode() error {
-
-}
-
 func (s *service) isCompleted(exclude string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

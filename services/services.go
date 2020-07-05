@@ -107,7 +107,7 @@ func (p *retryManager) cycleCheck() {
 // all services
 type servicePool struct {
 	root            string
-	selfName        string
+	selfNodeName    string
 	selfServiceName string
 	services        map[string]*service
 	knownNames      map[string]bool
@@ -116,7 +116,7 @@ type servicePool struct {
 	callbacks       sync.Map // service add callback notify
 }
 
-func (p *servicePool) init(root string, hosts, serviceNames []string, serviceNameProvided, selfName string) {
+func (p *servicePool) init(root string, hosts, serviceNames []string, selfServiceName, selfNodeName string) {
 	// init etcd node
 	cfg := etcdclient.Config{
 		Endpoints:   hosts,
@@ -129,8 +129,8 @@ func (p *servicePool) init(root string, hosts, serviceNames []string, serviceNam
 	}
 	p.client = c
 	p.root = "/root" + root
-	p.selfServiceName = serviceNameProvided
-	p.selfName = selfName
+	p.selfServiceName = selfServiceName
+	p.selfNodeName = selfNodeName
 	// init
 	p.services = make(map[string]*service)
 	p.knownNames = make(map[string]bool)
@@ -141,9 +141,9 @@ func (p *servicePool) init(root string, hosts, serviceNames []string, serviceNam
 
 	log.Infof("all service serviceNames:%v", serviceNames)
 	for _, v := range serviceNames {
-		dirPath := joinPath(p.root, strings.TrimSpace(v))
-		p.knownNames[dirPath] = true
-		p.services[dirPath] = newService(v)
+		servicePath := joinPath(p.root, strings.TrimSpace(v))
+		p.knownNames[servicePath] = true
+		p.services[servicePath] = newService(v)
 	}
 }
 
@@ -162,14 +162,18 @@ func (w *work) result() string {
 	return <-w.resultGroup
 }
 
-func (w *work) start(worker int) {
+func (w *work) start() {
 	w.jobsNum = w.jobCount()
+	worker := w.jobsNum/2 + 1
 	for i := 0; i < worker; i++ {
 		go w.job()
 	}
 }
 
 func (w *work) wait(ctx context.Context) error {
+	if w.jobsNum <= 0 {
+		return nil
+	}
 	for {
 		select {
 		case key, ok := <-w.resultGroup:
@@ -227,71 +231,70 @@ func (p *servicePool) startClient(ctx context.Context) error {
 			return err
 		}
 	}
-
-	w.start(len(p.services))
-
+	w.start()
 	return w.wait(ctx)
-
-	//for {
-	//	select {
-	//	case key, ok := <-w.resultGroup:
-	//		if !ok {
-	//			return fmt.Errorf("startClient resultServiceJob close")
-	//		}
-	//		log.Infof("startClient add service node %v", key)
-	//		if jobsNum--; jobsNum <= 0 {
-	//			return nil
-	//		}
-	//	case <-ctx.Done():
-	//		return fmt.Errorf("startClient timeout")
-	//	}
-	//}
 }
 
-func (p *servicePool) startServer(ctx context.Context, startup func(*service)) {
+func (p *servicePool) startServer(ctx context.Context, port int, startup func(*server, *service) error) {
+	server, err := startServer(fmt.Sprintf(":%d", port))
+	if err != nil {
+		log.Fatalf("startServer %v err %v", port, err)
+	}
 	w, cancel := p.makeWork(256)
 	defer cancel()
 
-	dirPath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
-
-	mu, err := p.lock()
-	defer mu.Unlock(context.TODO())
+	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
+	mtx, err := p.newMutex(p.selfServiceName)
+	if err != nil {
+		log.Fatalf("lock service err %v", err)
+	}
+	mtx.Lock(context.TODO())
+	defer mtx.Unlock(context.TODO())
 
 	if err != nil {
 		log.Fatalf("startServer lock err:%v", err)
 	}
-	go p.watcher(dirPath)
+	go p.watcher(servicePath)
 
-	if err := p.initNodesOfService(dirPath, w); err != nil {
+	if err := p.initNodesOfService(servicePath, w); err != nil {
 		log.Fatalf("startServer initNodesOfService err:%v", err)
 	}
 
-	service := p.services[dirPath]
-	jobsNum := w.jobCount()
-	w.start(jobsNum)
+	service := p.services[servicePath]
+	w.start()
 
-	if jobsNum > 0 {
-		err = w.wait(ctx, jobsNum)
-		if err != nil {
-			log.WithError(err).Fatalf("startServer fail")
-		}
+	err = w.wait(ctx)
+	if err != nil {
+		log.WithError(err).Fatalf("startServer fail")
+	}
+	//startup func
+	if err := startup(server, service); err != nil {
+		log.Fatalf("startup func err %v", err)
 	}
 
-	startup(service)
-
-	nodePath := joinPath(service.name, p.selfName)
+	nodePath := joinPath(service.name, p.selfNodeName)
 	if err := p.updateNode(nodePath, StatusServicePending); err != nil {
 		log.Fatalf("updateNode %v %v err %v", nodePath, StatusServicePending, err)
 	}
 
-	//check StatusServiceRunning
-
+	//loop check to status StatusServiceRunning
+	log.Infof("start to check whether nodes are ready")
+	for {
+		completed := service.isCompleted(p.selfNodeName)
+		if completed {
+			if err := p.updateNode(nodePath, StatusServiceRunning); err != nil {
+				log.Fatalf("updateNode %v %v err %v", nodePath, StatusServiceRunning, err)
+			}
+		}
+		time.Sleep(100)
+	}
+	log.Infof("node %v startup completed", p.selfNodeName)
 }
 
 func (p *servicePool) isCompleted() bool {
 	dirPath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
 	service := p.services[dirPath]
-	return service.isCompleted(p.selfName)
+	return service.isCompleted(p.selfNodeName)
 }
 
 // watcher for data change in etcd directory
@@ -299,10 +302,10 @@ func (p *servicePool) watcher(serviceName string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	for {
-		path := joinPath(p.root, strings.TrimSpace(serviceName))
-		wc := p.client.Watch(ctx, path, etcdclient.WithPrefix())
+		servicePath := joinPath(p.root, strings.TrimSpace(serviceName))
+		wc := p.client.Watch(ctx, servicePath, etcdclient.WithPrefix())
 		if wc == nil {
-			log.Errorf("no watcher channel %v", path)
+			log.Errorf("no watcher channel %v", servicePath)
 			continue
 		}
 		for wresp := range wc {
@@ -361,7 +364,7 @@ func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 }
 
 // add a service
-func (p *servicePool) addService(key string, value []byte, iscallback bool) bool {
+func (p *servicePool) addService(key string, value []byte, isCallback bool) bool {
 	// name check
 	dirPath := getDir(key)
 	if p.namesProvided && !p.knownNames[dirPath] {
@@ -379,7 +382,7 @@ func (p *servicePool) addService(key string, value []byte, iscallback bool) bool
 	}
 	nodeName := getFileName(key)
 	// create service connection
-	if nodeName == p.selfName {
+	if nodeName == p.selfNodeName {
 		service := p.services[dirPath]
 		node := node{nodeName, nil, *info, true, false}
 		err = service.upsertNode(node)
@@ -405,7 +408,7 @@ func (p *servicePool) addService(key string, value []byte, iscallback bool) bool
 		}
 		log.Infof("addService remote %v - %v", key, value)
 	}
-	if iscallback {
+	if isCallback {
 		if callback, ok := p.callbacks.Load(nodeName); ok {
 			call := callback.(func(key string, status int8))
 			call(nodeName, info.status)
@@ -531,33 +534,29 @@ func (p *servicePool) retryConn(key string) (del bool) {
 	return
 }
 
-func (p *servicePool) lock() (*concurrency.Mutex, error) {
+func (p *servicePool) newMutex(serviceName string) (*concurrency.Mutex, error) {
 	sess, err := concurrency.NewSession(_defaultPool.client)
 	if err != nil {
 		return nil, err
 	}
 	defer sess.Close()
-	m1 := concurrency.NewMutex(sess, "/lock-"+p.selfServiceName+"/")
-	err = m1.Lock(context.TODO())
-	if err != nil {
-		return nil, err
-	}
+	m1 := concurrency.NewMutex(sess, "/lock-"+serviceName)
 	return m1, nil
 }
 
-func (p *servicePool) lockDo(servieName string, f func(string)) error {
+func (p *servicePool) lockDo(serviceName string, f func(string)) error {
 	sess, err := concurrency.NewSession(_defaultPool.client)
 	if err != nil {
 		return err
 	}
 	defer sess.Close()
-	m1 := concurrency.NewMutex(sess, "/lock-"+servieName+"/")
+	m1 := concurrency.NewMutex(sess, "/lock-"+serviceName)
 	err = m1.Lock(context.TODO())
 	if err != nil {
 		return err
 	}
 	defer m1.Unlock(context.TODO())
-	f(servieName)
+	f(serviceName)
 	return nil
 }
 
@@ -594,8 +593,8 @@ func SyncStartClient(ctx context.Context) error {
 	return _defaultPool.startClient(ctx)
 }
 
-func SyncStartService(ctx context.Context, startup func(*service)) {
-	_defaultPool.startServer(ctx, startup)
+func SyncStartService(ctx context.Context, port int, startup func(*server, *service) error) {
+	_defaultPool.startServer(ctx, port, startup)
 }
 
 func GetService(serviceName string) *service {
@@ -610,24 +609,24 @@ func GetServiceWithConsistentHash(servieName string, key string) (bool, nodeData
 	return node.isLocal, node.data, node.conn, nil
 }
 
-func getServiceWithRoundRobin(servieName string) (bool, nodeData, *grpc.ClientConn, error) {
-	node, err := _defaultPool.getServiceWithRoundRobin(joinPath(_defaultPool.root, servieName))
+func getServiceWithRoundRobin(serviceName string) (bool, nodeData, *grpc.ClientConn, error) {
+	node, err := _defaultPool.getServiceWithRoundRobin(joinPath(_defaultPool.root, serviceName))
 	if err != nil {
 		return false, nodeData{}, nil, err
 	}
 	return node.isLocal, node.data, node.conn, nil
 }
 
-func GetServiceWithId(servieName string, id string) (bool, nodeData, *grpc.ClientConn, error) {
-	node, err := _defaultPool.getServiceWithId(joinPath(_defaultPool.root, servieName), id)
+func GetServiceWithId(serviceName string, id string) (bool, nodeData, *grpc.ClientConn, error) {
+	node, err := _defaultPool.getServiceWithId(joinPath(_defaultPool.root, serviceName), id)
 	if err != nil {
 		return false, nodeData{}, nil, err
 	}
 	return node.isLocal, node.data, node.conn, nil
 }
 
-func GetServiceWithHash(servieName string, hash int) (bool, nodeData, *grpc.ClientConn, error) {
-	node, err := _defaultPool.getServiceWithHash(joinPath(_defaultPool.root, servieName), hash)
+func GetServiceWithHash(serviceName string, hash int) (bool, nodeData, *grpc.ClientConn, error) {
+	node, err := _defaultPool.getServiceWithHash(joinPath(_defaultPool.root, serviceName), hash)
 	if err != nil {
 		return false, nodeData{}, nil, err
 	}
