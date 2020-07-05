@@ -235,8 +235,8 @@ func (p *servicePool) startClient(ctx context.Context) error {
 	return w.wait(ctx)
 }
 
-func (p *servicePool) startServer(ctx context.Context, port int, startup func(*server, *service) error) {
-	server, err := startServer(fmt.Sprintf(":%d", port))
+func (p *servicePool) startServer(ctx context.Context, port int, startup func(*grpc.Server, *service) error) {
+	sw, err := NewServerWrapper(fmt.Sprintf(":%d", port))
 	if err != nil {
 		log.Fatalf("startServer %v err %v", port, err)
 	}
@@ -268,9 +268,11 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*s
 		log.WithError(err).Fatalf("startServer fail")
 	}
 	//startup func
-	if err := startup(server, service); err != nil {
+	if err := startup(sw.gServer, service); err != nil {
 		log.Fatalf("startup func err %v", err)
 	}
+
+	sw.Start()
 
 	nodePath := joinPath(service.name, p.selfNodeName)
 	if err := p.updateNode(nodePath, StatusServicePending); err != nil {
@@ -593,7 +595,7 @@ func SyncStartClient(ctx context.Context) error {
 	return _defaultPool.startClient(ctx)
 }
 
-func SyncStartService(ctx context.Context, port int, startup func(*server, *service) error) {
+func SyncStartService(ctx context.Context, port int, startup func(*grpc.Server, *service) error) {
 	_defaultPool.startServer(ctx, port, startup)
 }
 
