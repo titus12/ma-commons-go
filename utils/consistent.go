@@ -26,6 +26,10 @@ type NodeKey struct {
 	weight int //权重
 }
 
+func (node NodeKey) Copy() *NodeKey {
+	return &node
+}
+
 func (node *NodeKey) Weight() int {
 	return node.weight
 }
@@ -67,6 +71,28 @@ func NewConsistent() *Consistent {
 	c.circle = make(map[uint32]*NodeKey)
 	c.members = make(map[string]*NodeKey)
 	return c
+}
+
+func (c *Consistent) Copy() *Consistent {
+	c.Lock()
+	defer c.Unlock()
+
+	clone := NewConsistent()
+	clone.sortedHashes = c.sortedHashes
+	clone.NumberOfReplicas = c.NumberOfReplicas
+	clone.count = c.count
+	clone.UseFnv = c.UseFnv
+
+	// 克隆成员
+	for k, v := range c.members {
+		clone.members[k] = v.Copy()
+	}
+
+	for k, v := range c.circle {
+		node := clone.members[v.key]
+		clone.circle[k] = node
+	}
+	return clone
 }
 
 // 根据索引生成代表虚拟节点的字符串
