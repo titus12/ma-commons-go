@@ -4,6 +4,25 @@ import (
 	"testing"
 )
 
+func TestCopySlice(t *testing.T) {
+	cHashRing := NewConsistent()
+
+	cHashRing.Add(NewNodeKey("192.168.1.1:8080", 1))
+	cHashRing.Add(NewNodeKey("192.168.1.2:8080", 1))
+	cHashRing.Add(NewNodeKey("192.168.1.3:8080", 1))
+	cHashRing.Add(NewNodeKey("192.168.1.4:8080", 1))
+	cHashRing.Add(NewNodeKey("192.168.1.5:8080", 1))
+
+	clone := cHashRing.Copy()
+
+
+	clone.Add(NewNodeKey("111111:88888", 1))
+	cHashRing.Remove("192.168.1.5:8080")
+
+
+	t.Log(clone)
+}
+
 func TestConsistent1(t *testing.T) {
 	cHashRing := NewConsistent()
 	cHashRing.Add(NewNodeKey("192.168.1.1:8080", 1))
