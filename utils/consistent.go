@@ -78,10 +78,15 @@ func (c *Consistent) Copy() *Consistent {
 	defer c.Unlock()
 
 	clone := NewConsistent()
-	clone.sortedHashes = c.sortedHashes
+	//clone.sortedHashes = c.sortedHashes
 	clone.NumberOfReplicas = c.NumberOfReplicas
 	clone.count = c.count
 	clone.UseFnv = c.UseFnv
+	if c.sortedHashes != nil {
+		clone.sortedHashes = make(uints, len(c.sortedHashes), cap(c.sortedHashes))
+		copy(clone.sortedHashes, c.sortedHashes)
+	}
+
 
 	// 克隆成员
 	for k, v := range c.members {
