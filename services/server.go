@@ -17,7 +17,7 @@ type serverWrapper struct {
 	gServer  *grpc.Server
 }
 
-func (s *server) Ready(context.Context, *gp.Node) (*gp.Result, error) {
+func (s *server) Notify(context.Context, *gp.Node) (*gp.Result, error) {
 	defer utils.PrintPanicStack()
 	return nil, nil
 }
@@ -35,7 +35,7 @@ func NewServerWrapper(listen string) (*serverWrapper, error) {
 	serverWrapper.listener = &lis
 	serverWrapper.gServer = s
 	ins := &server{}
-	gp.RegisterServiceServer(s, ins)
+	gp.RegisterNodeServiceServer(s, ins)
 	return serverWrapper, nil
 }
 

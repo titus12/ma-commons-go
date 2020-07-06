@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
 	"sync"
 	"sync/atomic"
 )
@@ -23,13 +24,21 @@ const (
 	StatusServiceStopping
 )
 
+var StatusServiceName = map[int8]string{
+	StatusServiceNone:     "NONE",
+	StatusServicePending:  "PENDING",
+	StatusServiceRunning:  "RUNNING",
+	StatusServiceStopping: "STOPPING",
+}
+
 type service struct {
 	name               string
 	stableConsistent   *cons.Consistent
 	unstableConsistent *cons.Consistent
-	nodes              []node
+	nodes              []*node
 	mu                 sync.RWMutex
 	idx                uint32
+	callback           func(nodeName string, nodeStatus int32) error
 }
 
 func newService(name string) *service {
@@ -40,7 +49,7 @@ func newService(name string) *service {
 }
 
 func (s *service) isCompleted(exclude string) bool {
-	s.mu.Lock()
+	s.mu.RLock()
 	defer s.mu.Unlock()
 	for _, v := range s.nodes {
 		if v.key == exclude {
@@ -70,7 +79,12 @@ func (s *service) upsertNode(node node) error {
 			return nil
 		}
 	}
-	s.nodes = append(s.nodes, node)
+	add, err := checkAddNode(&node)
+	if add {
+		s.unstableConsistent.Add(cons.NewNodeKey(node.key, 1))
+		s.nodes = append(s.nodes, node)
+	}
+
 	if node.data.status == StatusServicePending {
 		s.unstableConsistent.Add(cons.NewNodeKey(node.key, 1))
 		log.Debugf("upsertNode unstableConsistent add key %v", node.key)
@@ -79,6 +93,78 @@ func (s *service) upsertNode(node node) error {
 		log.Debugf("upsertNode unstableConsistent remove key %v", node.key)
 	}
 	return nil
+}
+
+func (s *service) addNode(node *node) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, v := range s.nodes {
+		if v.key == node.key {
+			return fmt.Errorf("addNode node %v already exist", node.key)
+		}
+	}
+	err := s.checkStatus(nil, node)
+	if err != nil {
+		return err
+	}
+	s.nodes = append(s.nodes, node)
+	return nil
+}
+
+func (s *service) updateNode(node *node) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx := -1
+	for i, v := range s.nodes {
+		if v.key == node.key {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return fmt.Errorf("updateNode node %v is not exist", node.key)
+	}
+	err := s.checkStatus(s.nodes[idx], node)
+	if err != nil {
+		return err
+	}
+	s.nodes[idx] = node
+	return nil
+}
+
+func (s *service) checkStatus(oldNode *node, newNode *node) error {
+	var oldStatus int8 = StatusServiceNone
+	if oldNode != nil {
+		oldStatus = oldNode.data.status
+	}
+	newStatus := newNode.data.status
+	if oldStatus == newStatus {
+		return fmt.Errorf("updateNode node %v status %v duplicated", newNode.key, StatusServiceName[newStatus])
+	}
+
+	switch newStatus {
+	case StatusServiceNone:
+		if oldStatus == StatusServiceNone {
+			return nil
+		}
+	case StatusServicePending:
+		if oldStatus == StatusServiceNone {
+			//事件 - 不稳定环加节点
+			s.unstableConsistent.Add(cons.NewNodeKey(newNode.key, 1))
+			return nil
+		}
+	case StatusServiceRunning:
+		if oldStatus == StatusServicePending {
+			//事件 克隆 稳定环 = 不稳定环
+			s.stableConsistent = s.unstableConsistent.Clone()
+			return nil
+		}
+	case StatusServiceStopping:
+		//事件 - 不稳定环删节点
+		s.unstableConsistent.Remove(newNode.key)
+		return nil
+	}
+	return fmt.Errorf("updateNode node %v no regulation %v -> %v ", newNode.key, StatusServiceName[oldStatus], StatusServiceName[newStatus])
 }
 
 func (s *service) delNode(key string) {
@@ -97,7 +183,7 @@ func (s *service) delNode(key string) {
 }
 
 func (s *service) getNode(id string) (node, error) {
-	s.mu.Lock()
+	s.mu.RLock()
 	defer s.mu.Unlock()
 	for k := range s.nodes {
 		if s.nodes[k].key == id {
@@ -107,8 +193,8 @@ func (s *service) getNode(id string) (node, error) {
 	return node{}, fmt.Errorf("node %v id %v is not exist", s.name, id)
 }
 
-func (s *service) getNodeWithRoundRobin(path string) (node, error) {
-	s.mu.Lock()
+func (s *service) getNodeWithRoundRobin() (node, error) {
+	s.mu.RLock()
 	defer s.mu.Unlock()
 	count := len(s.nodes)
 	if count == 0 {
@@ -118,8 +204,8 @@ func (s *service) getNodeWithRoundRobin(path string) (node, error) {
 	return s.nodes[idx], nil
 }
 
-func (s *service) getNodeWithHash(path string, hash int) (node, error) {
-	s.mu.Lock()
+func (s *service) getNodeWithHash(hash int) (node, error) {
+	s.mu.RLock()
 	defer s.mu.Unlock()
 	count := len(s.nodes)
 	if count == 0 {
@@ -129,28 +215,64 @@ func (s *service) getNodeWithHash(path string, hash int) (node, error) {
 	return s.nodes[idx], nil
 }
 
-func (s *service) getNodeWithConsistentHash(path string, id string) (node, error) {
-	s.mu.Lock()
+func (s *service) getNodeWithConsistentHash(id string, isStable bool) (node, error) {
+	s.mu.RLock()
 	defer s.mu.Unlock()
 	count := len(s.nodes)
 	if count == 0 {
 		return node{}, ErrNoNodes
 	}
-	nodeKey, err := s.stableConsistent.Get(id)
+	var nodeKey *cons.NodeKey
+	var err error
+	if isStable {
+		nodeKey, err = s.stableConsistent.Get(id)
+	} else {
+		nodeKey, err = s.unstableConsistent.Get(id)
+	}
+
 	if err != nil {
-		return node{}, fmt.Errorf("consistent err %v", err)
+		return node{}, fmt.Errorf("consistent id %v isStable %v err %v", id, isStable, err)
 	}
 	for _, v := range s.nodes {
 		if v.key == nodeKey.Key() {
 			return v, nil
 		}
 	}
-	return node{}, fmt.Errorf("no found node")
+	return node{}, fmt.Errorf("no found node id %v isStable %v", id, isStable)
 }
 
-func (s *service) getNodes(path string) (nodes []node) {
-	s.mu.Lock()
+func (s *service) getNodes() []node {
+	s.mu.RLock()
 	defer s.mu.Unlock()
+	len := len(s.nodes)
+	nodes := make([]node, len, len)
 	copy(nodes, s.nodes)
 	return nodes
+}
+
+/////////////////////////////////////////////////////////////////
+// Wrappers
+
+func (s *service) ServiceName() string {
+	return s.name
+}
+
+func (s *service) SetCallback(fn func(nodeName string, nodeStatus int32) error) {
+	s.callback = fn
+}
+
+func (s *service) IsLocalWithStableRing(id int64) (local bool, nodeName string, nodeStatus int8, conn *grpc.ClientConn, err error) {
+	node, err := s.getNodeWithConsistentHash(fmt.Sprintf("%d", id), true)
+	if err != nil {
+		return false, "", -1, nil, err
+	}
+	return node.isLocal, node.key, node.data.status, node.conn, nil
+}
+
+func (s *service) IsLocalWithUnstableRing(id int64) (local bool, nodeName string, nodeStatus int8, conn *grpc.ClientConn, err error) {
+	node, err := s.getNodeWithConsistentHash(fmt.Sprintf("%d", id), false)
+	if err != nil {
+		return false, "", -1, nil, err
+	}
+	return node.isLocal, node.key, node.data.status, node.conn, nil
 }

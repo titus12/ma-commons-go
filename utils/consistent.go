@@ -26,7 +26,7 @@ type NodeKey struct {
 	weight int //权重
 }
 
-func (node NodeKey) Copy() *NodeKey {
+func (node NodeKey) Clone() *NodeKey {
 	return &node
 }
 
@@ -73,7 +73,7 @@ func NewConsistent() *Consistent {
 	return c
 }
 
-func (c *Consistent) Copy() *Consistent {
+func (c *Consistent) Clone() *Consistent {
 	c.Lock()
 	defer c.Unlock()
 
@@ -87,10 +87,9 @@ func (c *Consistent) Copy() *Consistent {
 		copy(clone.sortedHashes, c.sortedHashes)
 	}
 
-
 	// 克隆成员
 	for k, v := range c.members {
-		clone.members[k] = v.Copy()
+		clone.members[k] = v.Clone()
 	}
 
 	for k, v := range c.circle {

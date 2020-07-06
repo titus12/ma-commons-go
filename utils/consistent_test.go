@@ -13,12 +13,10 @@ func TestCopySlice(t *testing.T) {
 	cHashRing.Add(NewNodeKey("192.168.1.4:8080", 1))
 	cHashRing.Add(NewNodeKey("192.168.1.5:8080", 1))
 
-	clone := cHashRing.Copy()
-
+	clone := cHashRing.Clone()
 
 	clone.Add(NewNodeKey("111111:88888", 1))
 	cHashRing.Remove("192.168.1.5:8080")
-
 
 	t.Log(clone)
 }

@@ -109,6 +109,7 @@ type servicePool struct {
 	root            string
 	selfNodeName    string
 	selfServiceName string
+	selfNodeAddr    string
 	services        map[string]*service
 	knownNames      map[string]bool
 	namesProvided   bool
@@ -116,7 +117,7 @@ type servicePool struct {
 	callbacks       sync.Map // service add callback notify
 }
 
-func (p *servicePool) init(root string, hosts, serviceNames []string, selfServiceName, selfNodeName string) {
+func (p *servicePool) init(root string, hosts, serviceNames []string, selfServiceName, selfNodeName, selfNodeAddr string) {
 	// init etcd node
 	cfg := etcdclient.Config{
 		Endpoints:   hosts,
@@ -131,6 +132,7 @@ func (p *servicePool) init(root string, hosts, serviceNames []string, selfServic
 	p.root = "/root" + root
 	p.selfServiceName = selfServiceName
 	p.selfNodeName = selfNodeName
+	p.selfNodeAddr = selfNodeAddr
 	// init
 	p.services = make(map[string]*service)
 	p.knownNames = make(map[string]bool)
@@ -203,7 +205,7 @@ func (p *servicePool) makeWork(queueSize int) (*work, func()) {
 	job := func() {
 		for job := range w.jobGroup {
 			key := string(job.Key)
-			if p.addService(key, job.Value, false) {
+			if p.addNode(key, job.Value, false) {
 				w.jobGroup <- job
 				continue
 			}
@@ -275,8 +277,13 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	sw.Start()
 
 	nodePath := joinPath(service.name, p.selfNodeName)
-	if err := p.updateNode(nodePath, StatusServicePending); err != nil {
-		log.Fatalf("updateNode %v %v err %v", nodePath, StatusServicePending, err)
+	node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, StatusServicePending}, true, true)
+	if err := service.addNode(node); err != nil {
+		log.Fatalf("addNode %v %v err %v", node.key, StatusServiceName[node.data.status], err)
+	}
+
+	if err := p.updateNodeData(nodePath, node.data); err != nil {
+		log.Fatalf("updateNodeData %v %v err %v", nodePath, StatusServicePending, err)
 	}
 
 	//loop check to status StatusServiceRunning
@@ -284,8 +291,8 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	for {
 		completed := service.isCompleted(p.selfNodeName)
 		if completed {
-			if err := p.updateNode(nodePath, StatusServiceRunning); err != nil {
-				log.Fatalf("updateNode %v %v err %v", nodePath, StatusServiceRunning, err)
+			if err := p.updateNodeData(nodePath, StatusServiceRunning); err != nil {
+				log.Fatalf("updateNodeData %v %v err %v", nodePath, StatusServiceRunning, err)
 			}
 		}
 		time.Sleep(100)
@@ -294,8 +301,8 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 }
 
 func (p *servicePool) isCompleted() bool {
-	dirPath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
-	service := p.services[dirPath]
+	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
+	service := p.services[servicePath]
 	return service.isCompleted(p.selfNodeName)
 }
 
@@ -316,7 +323,7 @@ func (p *servicePool) watcher(serviceName string) {
 				switch ev.Type {
 				case etcdclient.EventTypePut:
 					key := string(ev.Kv.Key)
-					if ok := p.addService(key, ev.Kv.Value, true); !ok {
+					if ok := p.addNode(key, ev.Kv.Value, true); !ok {
 						addRetry(key)
 					}
 				case etcdclient.EventTypeDelete:
@@ -331,7 +338,7 @@ func (p *servicePool) watcher(serviceName string) {
 	}
 }
 
-// connect to all services
+// connect to all nodes of the service
 func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 	kAPI := etcdclient.NewKV(p.client)
 	// get the keys under directory
@@ -356,7 +363,7 @@ func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 		w.addJob(ev)
 		//ch <- *ev
 		/*path := string(ev.Key)
-		if ok := p.addService(path, ev.Value); !ok {
+		if ok := p.addNode(path, ev.Value); !ok {
 			addRetry(path)
 		}
 		fmt.Printf("%s : %s\n", path, ev.Value)*/
@@ -365,18 +372,18 @@ func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 	return nil
 }
 
-// add a service
-func (p *servicePool) addService(key string, value []byte, isCallback bool) bool {
+// add a node
+func (p *servicePool) addNode(key string, value []byte, isCallback bool) bool {
 	// name check
-	dirPath := getDir(key)
-	if p.namesProvided && !p.knownNames[dirPath] {
+	servicePath := getDir(key)
+	if p.namesProvided && !p.knownNames[servicePath] {
 		return true
 	}
 
 	info := &nodeData{}
 	err := json.Unmarshal(value, info)
 	if err != nil {
-		log.Errorf("addService nodeData Parse value:%v, err:%v", value, err)
+		log.Errorf("addNode nodeData Parse value:%v, err:%v", value, err)
 		return false
 	}
 	if info.status == StatusServiceNone {
@@ -385,14 +392,14 @@ func (p *servicePool) addService(key string, value []byte, isCallback bool) bool
 	nodeName := getFileName(key)
 	// create service connection
 	if nodeName == p.selfNodeName {
-		service := p.services[dirPath]
+		service := p.services[servicePath]
 		node := node{nodeName, nil, *info, true, false}
 		err = service.upsertNode(node)
 		if err != nil {
-			log.Errorf("addService local %v - %v err %v", key, value, err)
+			log.Errorf("addNode local %v - %v err %v", key, value, err)
 			return false
 		}
-		log.Infof("addService local %v - %v", key, value)
+		log.Infof("addNode local %v - %v", key, value)
 	} else {
 		ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 		conn, err := grpc.DialContext(ctx, info.addr, grpc.WithBlock())
@@ -401,36 +408,37 @@ func (p *servicePool) addService(key string, value []byte, isCallback bool) bool
 			log.Errorf("service connect %v - %v, Error: %v", key, value, err)
 			return false
 		}
-		service := p.services[dirPath]
+		service := p.services[servicePath]
 		node := node{nodeName, conn, *info, false, false}
 		err = service.upsertNode(node)
 		if err != nil {
-			log.Errorf("addService remote %v - %v err %v", key, value, err)
+			log.Errorf("addNode remote %v - %v err %v", key, value, err)
 			return false
 		}
-		log.Infof("addService remote %v - %v", key, value)
+		log.Infof("addNode remote %v - %v", key, value)
 	}
-	if isCallback {
+
+	/*if isCallback {
 		if callback, ok := p.callbacks.Load(nodeName); ok {
 			call := callback.(func(key string, status int8))
 			call(nodeName, info.status)
 		}
-	}
+	}*/
 	return true
 }
 
-// remove a service
+// remove a node
 func (p *servicePool) removeNode(key string) {
 	// name check
-	dirPath := filepath.Dir(key)
-	if p.namesProvided && !p.knownNames[dirPath] {
+	servicePath := filepath.Dir(key)
+	if p.namesProvided && !p.knownNames[servicePath] {
 		return
 	}
 
 	// check service kind
-	service := p.services[dirPath]
+	service := p.services[servicePath]
 	if service == nil {
-		log.Errorf("service not exists: %v", dirPath)
+		log.Errorf("service not exists: %v", servicePath)
 		return
 	}
 	nodeName := getFileName(key)
@@ -438,24 +446,18 @@ func (p *servicePool) removeNode(key string) {
 	service.delNode(nodeName)
 }
 
-func (p *servicePool) updateNode(nodePath string, status int8) error {
-	dirPath := filepath.Dir(nodePath)
-	if p.namesProvided && !p.knownNames[dirPath] {
+func (p *servicePool) updateNodeData(nodePath string, nodeData nodeData) error {
+	servicePath := filepath.Dir(nodePath)
+	if p.namesProvided && !p.knownNames[servicePath] {
 		return nil
 	}
-	nodeName := getFileName(nodePath)
-	service := p.services[dirPath]
-	node, err := service.getNode(nodeName)
+	data, err := json.Marshal(&nodeData)
 	if err != nil {
-		return fmt.Errorf("updateNode err %v", err)
-	}
-	data, err := json.Marshal(node.data)
-	if err != nil {
-		return fmt.Errorf("updateNode nodeData Marshal value:%v, err:%v", node.data, err)
+		return fmt.Errorf("updateNodeData nodeData Marshal value:%v, err:%v", data, err)
 	}
 	kAPI := etcdclient.NewKV(p.client)
 	// put the keys under directory
-	log.Infof("updateNode under:%v", nodePath)
+	log.Infof("updateNodeData under %v %v", nodePath, nodeData)
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	_, err = kAPI.Put(ctx, nodePath, string(data))
 	cancel()
@@ -467,49 +469,49 @@ func (p *servicePool) updateNode(nodePath string, status int8) error {
 //
 // the full cannonical path for this service is:
 // /backends/game/game001 172.168.0.1:8000
-func (p *servicePool) getServiceWithId(path string, id string) (node, error) {
+func (p *servicePool) getServiceWithId(servicePath string, id string) (node, error) {
 	// check existence
-	service := p.services[path]
+	service := p.services[servicePath]
 	if service == nil {
-		return node{}, fmt.Errorf("service %v is nil", path)
+		return node{}, fmt.Errorf("service %v is nil", servicePath)
 	}
 	return service.getNode(id)
 }
 
 // get a service in round-robin style
 // especially useful for load-balance with vars-less services
-func (p *servicePool) getServiceWithRoundRobin(path string) (node, error) {
+func (p *servicePool) getServiceWithRoundRobin(servicePath string) (node, error) {
 	// check existence
-	service := p.services[path]
+	service := p.services[servicePath]
 	if service == nil {
-		return node{}, fmt.Errorf("service %v is nil", path)
+		return node{}, fmt.Errorf("service %v is nil", servicePath)
 	}
 	// get a service in round-robind style,
-	return service.getNodeWithRoundRobin(path)
+	return service.getNodeWithRoundRobin()
 }
 
-func (p *servicePool) getServiceWithHash(path string, hash int) (node, error) {
-	service := p.services[path]
+func (p *servicePool) getServiceWithHash(servicePath string, hash int) (node, error) {
+	service := p.services[servicePath]
 	if service == nil {
-		return node{}, fmt.Errorf("service %v is nil", path)
+		return node{}, fmt.Errorf("service %v is nil", servicePath)
 	}
-	return service.getNodeWithHash(path, hash)
+	return service.getNodeWithHash(hash)
 }
 
-func (p *servicePool) getServiceWithConsistentHash(path string, key string) (node, error) {
-	service := p.services[path]
+func (p *servicePool) getServiceWithConsistentHash(servicePath string, key string) (node, error) {
+	service := p.services[servicePath]
 	if service == nil {
-		return node{}, fmt.Errorf("service %v is nil", path)
+		return node{}, fmt.Errorf("service %v is nil", servicePath)
 	}
-	return service.getNodeWithConsistentHash(path, key)
+	return service.getNodeWithConsistentHash(key, true)
 }
 
-func (p *servicePool) getServices(path string) ([]node, error) {
-	service := p.services[path]
+func (p *servicePool) getServices(servicePath string) ([]node, error) {
+	service := p.services[servicePath]
 	if service == nil {
-		return nil, fmt.Errorf("service %v is nil", path)
+		return nil, fmt.Errorf("service %v is nil", servicePath)
 	}
-	return service.getNodes(path), nil
+	return service.getNodes(), nil
 }
 
 func (p *servicePool) registerCallback(path string, callback func(key string, status int8)) {
@@ -532,7 +534,7 @@ func (p *servicePool) retryConn(key string) (del bool) {
 		return
 	}
 
-	del = p.addService(key, resp.Kvs[0].Value, true)
+	del = p.addNode(key, resp.Kvs[0].Value, true)
 	return
 }
 
