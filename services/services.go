@@ -226,7 +226,7 @@ func (p *servicePool) makeWork(queueSize int) (*work, func()) {
 	job := func() {
 		for job := range w.jobGroup {
 			key := string(job.Key)
-			if p.upsertNode(key, job.Value, false) {
+			if p.upsertNode(key, job.Value) {
 				w.jobGroup <- job
 				continue
 			}
@@ -434,7 +434,7 @@ func (p *servicePool) watcher(serviceName string) error {
 			func() {
 				defer utils.PrintPanicStack()
 				key := string(v.Kv.Key)
-				if ok := p.upsertNode(key, v.Kv.Value, true); !ok {
+				if ok := p.upsertNode(key, v.Kv.Value); !ok {
 					addRetry(key)
 				}
 			}()
@@ -490,7 +490,7 @@ func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 }
 
 // 添加或者更新一个节点
-func (p *servicePool) upsertNode(key string, value []byte, isCallback bool) bool {
+func (p *servicePool) upsertNode(key string, value []byte) bool {
 	servicePath := getDir(key)
 	if p.namesProvided && !p.knownNames[servicePath] {
 		return true
@@ -690,7 +690,7 @@ func (p *servicePool) retryConn(key string) (del bool) {
 		log.Errorf("retryConn err %v", err)
 		return
 	}
-	del = p.upsertNode(key, resp.Kvs[0].Value, true)
+	del = p.upsertNode(key, resp.Kvs[0].Value)
 	return
 }
 
