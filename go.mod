@@ -5,7 +5,7 @@ go 1.13
 require (
 	github.com/Shopify/sarama v1.24.1
 	github.com/coreos/bbolt v1.3.3 // indirect
-	github.com/coreos/etcd v3.3.17+incompatible
+	github.com/coreos/etcd v3.3.22+incompatible
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf // indirect
 	github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f // indirect
@@ -15,7 +15,7 @@ require (
 	github.com/go-redis/redis/v7 v7.2.0
 	github.com/gogo/protobuf v1.3.1 // indirect
 	github.com/golang/groupcache v0.0.0-20191027212112-611e8accdfc9 // indirect
-	github.com/golang/protobuf v1.3.2
+	github.com/golang/protobuf v1.4.2
 	github.com/google/btree v1.0.0 // indirect
 	github.com/google/uuid v1.1.1
 	github.com/gorilla/websocket v1.4.1 // indirect
@@ -29,10 +29,10 @@ require (
 	github.com/onsi/ginkgo v1.12.0 // indirect
 	github.com/onsi/gomega v1.9.0 // indirect
 	github.com/orcaman/concurrent-map v0.0.0-20190826125027-8c72a8bb44f6
-	github.com/pkg/errors v0.8.1
+	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.2.1 // indirect
 	github.com/prometheus/common v0.7.0
-	github.com/sirupsen/logrus v1.4.2
+	github.com/sirupsen/logrus v1.5.0
 	github.com/soheilhy/cmux v0.1.4 // indirect
 	github.com/templexxx/cpufeat v0.0.0-20180724012125-cef66df7f161 // indirect
 	github.com/templexxx/xor v0.0.0-20181023030647-4e92f724b73b // indirect
@@ -43,11 +43,12 @@ require (
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
 	github.com/xtaci/kcp-go v5.4.18+incompatible
 	github.com/xtaci/lossyconn v0.0.0-20190602105132-8df528c0c9ae // indirect
+	gitlab.gg.com/game_framework/gameser v0.0.0-20200708102837-c8949b1cf073 // indirect
 	go.etcd.io/bbolt v1.3.3 // indirect
-	go.uber.org/zap v1.12.0 // indirect
 	golang.org/x/net v0.0.0-20191105084925-a882066a44e0
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0 // indirect
-	google.golang.org/grpc v1.26.0
+	google.golang.org/grpc v1.30.0
+	google.golang.org/protobuf v1.25.0
 	k8s.io/api v0.0.0-20190620084959-7cf5895f2711
 	k8s.io/apimachinery v0.0.0-20190612205821-1799e75a0719
 	k8s.io/client-go v0.0.0-20190620085101-78d2af792bab
