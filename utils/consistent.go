@@ -126,13 +126,13 @@ func (c *Consistent) Add(node *NodeKey) bool {
 }
 
 // 移除节点，节点id=ipAndPort
-func (c *Consistent) Remove(key string) {
+func (c *Consistent) Remove(key string) bool {
 	c.Lock()
 	defer c.Unlock()
 
 	// 如果不存在节点，直接返回
 	if _, ok := c.members[key]; !ok {
-		return
+		return ok
 	}
 
 	node := c.members[key]
@@ -143,6 +143,7 @@ func (c *Consistent) Remove(key string) {
 	delete(c.members, key)
 	c.updateSortedHashes()
 	c.count--
+	return true
 }
 
 // 所有节点

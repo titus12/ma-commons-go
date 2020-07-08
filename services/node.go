@@ -9,13 +9,13 @@ type nodeData struct {
 
 // a single connection
 type node struct {
-	key     string
-	conn    *grpc.ClientConn
-	data    nodeData
-	isLocal bool
-	ready   bool
+	key      string
+	conn     *grpc.ClientConn
+	data     nodeData
+	isLocal  bool
+	transfer int32
 }
 
-func NewNode(name string, conn *grpc.ClientConn, data nodeData, isLocal, ready bool) *node {
-	return &node{name, conn, data, isLocal, ready}
+func NewNode(name string, conn *grpc.ClientConn, data nodeData, isLocal bool, transfer int32) *node {
+	return &node{name, conn, data, isLocal, transfer}
 }

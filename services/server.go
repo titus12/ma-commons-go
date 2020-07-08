@@ -17,9 +17,14 @@ type serverWrapper struct {
 	gServer  *grpc.Server
 }
 
-func (s *server) Notify(context.Context, *gp.Node) (*gp.Result, error) {
+func (s *server) Notify(cxt context.Context, node *gp.Node) (*gp.Result, error) {
 	defer utils.PrintPanicStack()
-	return nil, nil
+	result := &gp.Result{ErrorCode: 0, Error: ""}
+	if err := transfer(node.Name, node.Status); err != nil {
+		result.ErrorCode = 1
+		result.Error = err.Error()
+	}
+	return result, nil
 }
 
 func NewServerWrapper(listen string) (*serverWrapper, error) {

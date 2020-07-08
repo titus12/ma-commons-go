@@ -24,6 +24,12 @@ const (
 	StatusServiceStopping
 )
 
+const (
+	StatusTransferNone = iota
+	StatusTransferSucc
+	StatusTransferFail
+)
+
 var StatusServiceName = map[int8]string{
 	StatusServiceNone:     "NONE",
 	StatusServicePending:  "PENDING",
@@ -48,49 +54,59 @@ func newService(name string) *service {
 	return service
 }
 
-func (s *service) isCompleted(exclude string) bool {
+func (s *service) isCompleted(exclude string) int32 {
 	s.mu.RLock()
 	defer s.mu.Unlock()
 	for _, v := range s.nodes {
 		if v.key == exclude {
 			continue
 		}
-		if !v.ready {
-			return false
+		if v.transfer == StatusTransferFail {
+			return StatusTransferFail
+		} else if v.transfer == StatusTransferNone {
+			return StatusTransferNone
 		}
 	}
-	return true
+	return StatusTransferSucc
 }
 
-func (s *service) upsertNode(node node) error {
+func (s *service) transfer(nodeName string, status int32) bool {
+	for _, v := range s.nodes {
+		if v.key != nodeName {
+			continue
+		}
+		v.transfer = status
+		return true
+	}
+	return false
+}
+
+func (s *service) upsertNode(node *node) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, v := range s.nodes {
+	idx := -1
+	for i, v := range s.nodes {
 		if v.key == node.key {
-			if node.data.status == StatusServiceRunning && v.data.status != StatusServicePending {
-				return fmt.Errorf("UpsertNode old.data %v -> new.data %v", v, node)
-			}
-			if v.data.status == StatusServicePending && node.data.status == StatusServiceRunning {
-				s.stableConsistent.Add(cons.NewNodeKey(node.key, 1))
-				log.Debugf("upsertNode stableConsistent add key %v", node.key)
-			}
-			v.data = node.data
-			v.conn = node.conn
-			return nil
+			idx = i
+			break
 		}
 	}
-	add, err := checkAddNode(&node)
-	if add {
-		s.unstableConsistent.Add(cons.NewNodeKey(node.key, 1))
+	if idx == -1 {
+		err := s.checkStatus(nil, node)
+		if err != nil {
+			return err
+		}
 		s.nodes = append(s.nodes, node)
-	}
-
-	if node.data.status == StatusServicePending {
-		s.unstableConsistent.Add(cons.NewNodeKey(node.key, 1))
-		log.Debugf("upsertNode unstableConsistent add key %v", node.key)
-	} else if node.data.status == StatusServiceStopping {
-		s.unstableConsistent.Remove(node.key)
-		log.Debugf("upsertNode unstableConsistent remove key %v", node.key)
+	} else {
+		err := s.checkStatus(s.nodes[idx], node)
+		if err != nil {
+			return err
+		}
+		if node.data.addr == s.nodes[idx].data.addr {
+			node.conn = s.nodes[idx].conn
+		}
+		node.transfer = s.nodes[idx].transfer
+		s.nodes[idx] = node
 	}
 	return nil
 }
@@ -100,7 +116,7 @@ func (s *service) addNode(node *node) error {
 	defer s.mu.Unlock()
 	for _, v := range s.nodes {
 		if v.key == node.key {
-			return fmt.Errorf("addNode node %v already exist", node.key)
+			return fmt.Errorf("upsertNode node %v already exist", node.key)
 		}
 	}
 	err := s.checkStatus(nil, node)
@@ -139,17 +155,16 @@ func (s *service) checkStatus(oldNode *node, newNode *node) error {
 	}
 	newStatus := newNode.data.status
 	if oldStatus == newStatus {
-		return fmt.Errorf("updateNode node %v status %v duplicated", newNode.key, StatusServiceName[newStatus])
+		//return fmt.Errorf("checkStatus node %v status %v duplicated", newNode.key, StatusServiceName[newStatus])
+		return errStatusDuplicated
 	}
 
 	switch newStatus {
 	case StatusServiceNone:
-		if oldStatus == StatusServiceNone {
-			return nil
-		}
 	case StatusServicePending:
 		if oldStatus == StatusServiceNone {
 			//事件 - 不稳定环加节点
+			s.unstableConsistent = s.stableConsistent.Clone()
 			s.unstableConsistent.Add(cons.NewNodeKey(newNode.key, 1))
 			return nil
 		}
@@ -161,10 +176,12 @@ func (s *service) checkStatus(oldNode *node, newNode *node) error {
 		}
 	case StatusServiceStopping:
 		//事件 - 不稳定环删节点
-		s.unstableConsistent.Remove(newNode.key)
+		if ok := s.unstableConsistent.Remove(newNode.key); !ok {
+			return fmt.Errorf("checkStatus node %v %v unstableConsistent remove key not exist", newNode.key, StatusServiceName[newStatus])
+		}
 		return nil
 	}
-	return fmt.Errorf("updateNode node %v no regulation %v -> %v ", newNode.key, StatusServiceName[oldStatus], StatusServiceName[newStatus])
+	return fmt.Errorf("checkStatus node %v no regulation %v -> %v ", newNode.key, StatusServiceName[oldStatus], StatusServiceName[newStatus])
 }
 
 func (s *service) delNode(key string) {
@@ -187,7 +204,7 @@ func (s *service) getNode(id string) (node, error) {
 	defer s.mu.Unlock()
 	for k := range s.nodes {
 		if s.nodes[k].key == id {
-			return s.nodes[k], nil
+			return *s.nodes[k], nil
 		}
 	}
 	return node{}, fmt.Errorf("node %v id %v is not exist", s.name, id)
@@ -201,7 +218,7 @@ func (s *service) getNodeWithRoundRobin() (node, error) {
 		return node{}, ErrNoNodes
 	}
 	idx := int(atomic.AddUint32(&s.idx, 1)) % count
-	return s.nodes[idx], nil
+	return *s.nodes[idx], nil
 }
 
 func (s *service) getNodeWithHash(hash int) (node, error) {
@@ -212,7 +229,7 @@ func (s *service) getNodeWithHash(hash int) (node, error) {
 		return node{}, ErrNoNodes
 	}
 	idx := hash % len(s.nodes)
-	return s.nodes[idx], nil
+	return *s.nodes[idx], nil
 }
 
 func (s *service) getNodeWithConsistentHash(id string, isStable bool) (node, error) {
@@ -235,7 +252,7 @@ func (s *service) getNodeWithConsistentHash(id string, isStable bool) (node, err
 	}
 	for _, v := range s.nodes {
 		if v.key == nodeKey.Key() {
-			return v, nil
+			return *v, nil
 		}
 	}
 	return node{}, fmt.Errorf("no found node id %v isStable %v", id, isStable)
@@ -244,9 +261,11 @@ func (s *service) getNodeWithConsistentHash(id string, isStable bool) (node, err
 func (s *service) getNodes() []node {
 	s.mu.RLock()
 	defer s.mu.Unlock()
-	len := len(s.nodes)
-	nodes := make([]node, len, len)
-	copy(nodes, s.nodes)
+	nodes := make([]node, 0, len(s.nodes))
+	for _, v := range s.nodes {
+		nodes = append(nodes, *v)
+	}
+	//copy(nodes, s.nodes)
 	return nodes
 }
 
