@@ -17,26 +17,6 @@ var (
 	ErrNoNodes = errors.New("no nodes")
 )
 
-const (
-	StatusServiceNone = iota
-	StatusServicePending
-	StatusServiceRunning
-	StatusServiceStopping
-)
-
-const (
-	StatusTransferNone = iota
-	StatusTransferSucc
-	StatusTransferFail
-)
-
-var StatusServiceName = map[int8]string{
-	StatusServiceNone:     "NONE",
-	StatusServicePending:  "PENDING",
-	StatusServiceRunning:  "RUNNING",
-	StatusServiceStopping: "STOPPING",
-}
-
 type service struct {
 	name               string
 	stableConsistent   *cons.Consistent
@@ -71,6 +51,8 @@ func (s *service) isCompleted(exclude string) int32 {
 }
 
 func (s *service) transfer(nodeName string, status int32) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, v := range s.nodes {
 		if v.key != nodeName {
 			continue

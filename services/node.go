@@ -2,6 +2,26 @@ package services
 
 import "google.golang.org/grpc"
 
+const (
+	StatusServiceNone = iota
+	StatusServicePending
+	StatusServiceRunning
+	StatusServiceStopping
+)
+
+const (
+	StatusTransferNone = iota
+	StatusTransferSucc
+	StatusTransferFail
+)
+
+var StatusServiceName = map[int8]string{
+	StatusServiceNone:     "NONE",
+	StatusServicePending:  "PENDING",
+	StatusServiceRunning:  "RUNNING",
+	StatusServiceStopping: "STOPPING",
+}
+
 type nodeData struct {
 	addr   string `json:"addr"`
 	status int8   `json:"status"`

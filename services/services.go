@@ -237,7 +237,13 @@ func (p *servicePool) startClient(ctx context.Context) error {
 		if k == p.selfServiceName {
 			continue
 		}
-		go p.watcher(k)
+		go func() {
+			err := p.watcher(k)
+			if err != nil {
+				log.Fatalf("startClient watcher err %v", err)
+			}
+		}()
+
 		if err := p.initNodesOfService(k, w); err != nil {
 			return err
 		}
@@ -265,7 +271,13 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	if err != nil {
 		log.Fatalf("startServer lock err:%v", err)
 	}
-	go p.watcher(servicePath)
+
+	go func() {
+		err := p.watcher(servicePath)
+		if err != nil {
+			log.Fatalf("startServer watcher err %v", err)
+		}
+	}()
 
 	if err := p.initNodesOfService(servicePath, w); err != nil {
 		log.Fatalf("startServer initNodesOfService err:%v", err)
@@ -371,38 +383,46 @@ func (p *servicePool) transfer(key string, status int32) error {
 }
 
 // watcher for data change in etcd directory
-func (p *servicePool) watcher(serviceName string) {
+func (p *servicePool) watcher(serviceName string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	for {
-		servicePath := joinPath(p.root, strings.TrimSpace(serviceName))
-		wc := p.client.Watch(ctx, servicePath, etcdclient.WithPrefix())
-		if wc == nil {
-			log.Errorf("watcher no channel %v", servicePath)
-			continue
+	events := make(chan *etcdclient.Event, 256)
+	defer close(events)
+	servicePath := joinPath(p.root, strings.TrimSpace(serviceName))
+	wc := p.client.Watch(ctx, servicePath, etcdclient.WithPrefix())
+	if wc == nil {
+		return fmt.Errorf("watcher no channel %v", servicePath)
+	}
+	go func() {
+		for v := range events {
+			func() {
+				defer utils.PrintPanicStack()
+				key := string(v.Kv.Key)
+				if ok := p.upsertNode(key, v.Kv.Value, true); !ok {
+					addRetry(key)
+				}
+			}()
 		}
-		for wresp := range wc {
-			for _, ev := range wresp.Events {
-				func(event *etcdclient.Event) {
-					log.Debugf("watcher %v %v:%v", event.Type, string(event.Kv.Key), event.Kv.Value)
-					utils.PrintPanicStack()
-					switch event.Type {
-					case etcdclient.EventTypePut:
-						key := string(event.Kv.Key)
-						if ok := p.upsertNode(key, event.Kv.Value, true); !ok {
-							addRetry(key)
-						}
-					case etcdclient.EventTypeDelete:
-						key := string(event.PrevKv.Key)
-						p.removeNode(key)
-						delRetry(key)
-					default:
-						log.Errorf("watcher event %v kv %v", event.Type, event.Kv)
-					}
-				}(ev)
-			}
+	}()
+	for wresp := range wc {
+		for _, ev := range wresp.Events {
+			func(event *etcdclient.Event) {
+				log.Debugf("watcher %v %v:%v", event.Type, string(event.Kv.Key), event.Kv.Value)
+				defer utils.PrintPanicStack()
+				switch event.Type {
+				case etcdclient.EventTypePut:
+					events <- event
+				case etcdclient.EventTypeDelete:
+					key := string(event.PrevKv.Key)
+					p.removeNode(key)
+					delRetry(key)
+				default:
+					log.Errorf("watcher event %v kv %v", event.Type, event.Kv)
+				}
+			}(ev)
 		}
 	}
+	return nil
 }
 
 // connect to all nodes of the service
@@ -460,7 +480,7 @@ func (p *servicePool) upsertNode(key string, value []byte, isCallback bool) bool
 		}
 		if err != nil {
 			log.Errorf("upsertNode local %v - %v err %v", key, value, err)
-			return true
+			return false
 		}
 		log.Infof("upsertNode local %v - %v", key, value)
 	} else {
@@ -486,8 +506,10 @@ func (p *servicePool) upsertNode(key string, value []byte, isCallback bool) bool
 				log.Errorf("upsertNode remote callback %v - %v err %v", key, value, err)
 			}
 			for {
+				ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 				cli := gp.NewNodeServiceClient(conn)
-				result, err := cli.Notify(context.Background(), sendNode)
+				result, err := cli.Notify(ctx, sendNode)
+				cancel()
 				if err != nil {
 					log.Errorf("upsertNode remote Notify %v - %v err %v", key, value, err)
 				} else {
