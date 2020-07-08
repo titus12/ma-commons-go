@@ -387,7 +387,7 @@ func (p *servicePool) watcher(serviceName string) {
 					log.Debugf("watcher %v %v:%v", event.Type, string(event.Kv.Key), event.Kv.Value)
 					utils.PrintPanicStack()
 					switch event.Type {
-					case etcdclient.EventTypePut:
+					case etcdclient.EventTypePut:    // todo: 处理这个事件时会阻塞掉整个watcher,但watcher本身的Delete是立即执物的
 						key := string(event.Kv.Key)
 						if ok := p.upsertNode(key, event.Kv.Value, true); !ok {
 							addRetry(key)
