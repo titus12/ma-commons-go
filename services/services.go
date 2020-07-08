@@ -298,76 +298,84 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	sw.Start()
 
 	nodePath := joinPath(service.name, p.selfNodeName)
-	node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, StatusServicePending}, true, StatusTransferSucc)
+	node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, ServiceStatusPending}, true, TransferStatusSucc)
 	if err := service.addNode(node); err != nil {
 		log.Fatalf("startServer upsertNode %v %v err %v", node.key, StatusServiceName[node.data.status], err)
 	}
 
 	if err := p.updateNodeData(nodePath, &node.data); err != nil {
-		log.Fatalf("startServer updateNodeData %v %v err %v", nodePath, StatusServicePending, err)
+		log.Fatalf("startServer updateNodeData %v %v err %v", nodePath, ServiceStatusPending, err)
 	}
 
-	//loop check to status StatusServiceRunning
+	//loop check to status ServiceStatusRunning
 	log.Infof("startServer start to check whether nodes are ready")
 	status := node.data.status
 	for {
-		switch status {
-		case StatusServicePending:
-			transfer := service.isCompleted(p.selfNodeName)
-			if transfer == StatusTransferFail {
-				status = StatusServiceStopping
-				node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, StatusServiceStopping}, true, StatusTransferFail)
-				if err := p.stopNode(nodePath, node); err != nil {
-					log.Error("startServer updateNode stopping %v %v err %v", node.key, StatusServiceName[status], err)
-				}
-				log.Errorf("startServer transfer failed err %v", err)
-			} else if transfer == StatusTransferSucc {
-				status = StatusServiceRunning
-				node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, StatusServiceRunning}, true, StatusTransferSucc)
-				if err := service.updateNode(node); err != nil {
-					log.Error("startServer updateNode running %v %v err %v", node.key, StatusServiceName[status], err)
-				}
-				log.Info("startServer transfer success")
+		transfer := service.isCompleted(p.selfNodeName)
+		switch transfer {
+		case TransferStatusFail:
+			node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, ServiceStatusStopping}, true, TransferStatusFail)
+			if err := p.stopNode(nodePath, node); err != nil {
+				log.Error("startServer updateNode stop %v %v err %v", node.key, StatusServiceName[status], err)
 			}
-		case StatusServiceRunning, StatusServiceStopping:
-			if err := p.updateNodeData(nodePath, &node.data); err != nil {
-				log.Error("startServer updateNodeData %v %v err %v", nodePath, StatusServiceName[status], err)
-			} else {
-				goto StartServerDone
+			os.Exit(0)
+		case TransferStatusSucc:
+			node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, ServiceStatusRunning}, true, TransferStatusSucc)
+			if err := service.updateNode(node); err != nil {
+				log.Error("startServer updateNode running %v %v err %v", node.key, StatusServiceName[status], err)
 			}
+			log.Info("startServer transfer success")
+			for {
+				if err := p.updateNodeData(nodePath, &node.data); err != nil {
+					log.Error("startServer updateNodeData %v %v err %v", nodePath, StatusServiceName[status], err)
+				} else {
+					goto StartServerDone
+				}
+			}
+		case TransferStatusNone:
+			log.Debugf("startServer waiting for transfer")
 		}
 		time.Sleep(100)
 	}
 StartServerDone:
-	log.Infof("node %v startup completed %v ", p.selfNodeName, StatusServiceName[status])
+	log.Infof("node %v startup completed", p.selfNodeName)
 }
 
-func (p *servicePool) stopNode(key string, node *node) error {
-	servicePath := getDir(key)
+func (p *servicePool) stopNode(nodePath string, node *node) error {
+	servicePath := getDir(nodePath)
 	if p.namesProvided && !p.knownNames[servicePath] {
+		return nil
+	}
+	if p.selfNodeName != node.key {
 		return nil
 	}
 	service := p.services[servicePath]
 	if err := service.updateNode(node); err != nil {
 		return fmt.Errorf("stopNode stopping err %v", err)
 	}
-	if node.data.status == StatusServiceStopping {
-		err := service.callback(node.key, int32(node.data.status))
-		if err != nil {
-			log.Errorf("stopNode callback %v err %v", node.key, err)
+
+	for {
+		if err := p.updateNodeData(nodePath, &node.data); err != nil {
+			log.Error("startServer updateNodeData %v %v err %v", nodePath, StatusServiceName[node.data.status], err)
+		} else {
+			break
 		}
-		for {
-			if err := p.RemoveNodeData(key); err == nil {
-				event, ok := p.event.Load(eventOnDestroy)
-				if ok {
-					destroy := event.(func(key string, status int8))
-					destroy(node.key, node.data.status)
-				}
-				os.Exit(0)
-				break
+	}
+
+	err := service.callback(node.key, int32(node.data.status))
+	if err != nil {
+		log.Errorf("stopNode callback %v err %v", node.key, err)
+	}
+	for {
+		if err := p.RemoveNodeData(nodePath); err == nil {
+			event, ok := p.event.Load(eventOnDestroy)
+			if ok {
+				destroy := event.(func(key string, status int8))
+				destroy(node.key, node.data.status)
 			}
-			time.Sleep(time.Second)
+			break
 		}
+		time.Sleep(time.Second)
 	}
 	return nil
 }
@@ -444,7 +452,7 @@ func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 		if err != nil {
 			return fmt.Errorf("initNodesOfService nodeData Parse value:%v, err:%v", string(ev.Key), err)
 		}
-		if info.status == StatusServiceNone {
+		if info.status == ServiceStatusNone {
 			continue
 		}
 		w.addJob(ev)
@@ -466,14 +474,14 @@ func (p *servicePool) upsertNode(key string, value []byte, isCallback bool) bool
 		log.Errorf("upsertNode nodeData Parse value:%v, err:%v", value, err)
 		return false
 	}
-	if info.status == StatusServiceNone {
+	if info.status == ServiceStatusNone {
 		return true
 	}
 	nodeName := getFileName(key)
 	service := p.services[servicePath]
 	// create service connection
 	if nodeName == p.selfNodeName {
-		node := NewNode(nodeName, nil, *info, true, StatusTransferSucc)
+		node := NewNode(nodeName, nil, *info, true, TransferStatusSucc)
 		err = service.upsertNode(node)
 		if err == errStatusDuplicated {
 			return true
@@ -498,11 +506,11 @@ func (p *servicePool) upsertNode(key string, value []byte, isCallback bool) bool
 			return false
 		}
 		log.Infof("upsertNode remote %v - %v", key, value)
-		if node.data.status == StatusServicePending {
+		if node.data.status == ServiceStatusPending {
 			err := service.callback(nodeName, int32(node.data.status))
-			sendNode := &gp.Node{Name: key, Status: StatusTransferSucc}
+			sendNode := &gp.Node{Name: key, Status: TransferStatusSucc}
 			if err != nil {
-				sendNode.Status = StatusTransferFail
+				sendNode.Status = TransferStatusFail
 				log.Errorf("upsertNode remote callback %v - %v err %v", key, value, err)
 			}
 			for {

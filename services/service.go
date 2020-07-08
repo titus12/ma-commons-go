@@ -13,12 +13,20 @@ import (
 	cons "github.com/titus12/ma-commons-go/utils"
 )
 
+type serviceType int32
+
+const (
+	serviceTypeClient serviceType = 0
+	serviceTypeServer serviceType = 1
+)
+
 var (
 	ErrNoNodes = errors.New("no nodes")
 )
 
 type service struct {
 	name               string
+	serviceType        serviceType
 	stableConsistent   *cons.Consistent
 	unstableConsistent *cons.Consistent
 	nodes              []*node
@@ -27,8 +35,8 @@ type service struct {
 	callback           func(nodeName string, nodeStatus int32) error
 }
 
-func newService(name string) *service {
-	service := &service{name: name}
+func newService(name string, typ serviceType) *service {
+	service := &service{name: name, serviceType: typ}
 	service.stableConsistent = cons.NewConsistent()
 	service.unstableConsistent = cons.NewConsistent()
 	return service
@@ -41,13 +49,13 @@ func (s *service) isCompleted(exclude string) int32 {
 		if v.key == exclude {
 			continue
 		}
-		if v.transfer == StatusTransferFail {
-			return StatusTransferFail
-		} else if v.transfer == StatusTransferNone {
-			return StatusTransferNone
+		if v.transfer == TransferStatusFail {
+			return TransferStatusFail
+		} else if v.transfer == TransferStatusNone {
+			return TransferStatusNone
 		}
 	}
-	return StatusTransferSucc
+	return TransferStatusSucc
 }
 
 // todo: 这里是否要加锁，range s.nodes 时 s.nodes 可能会有变化.
@@ -85,11 +93,11 @@ func (s *service) upsertNode(node *node) error {
 		if err != nil {
 			return err
 		}
-		if node.data.addr == s.nodes[idx].data.addr {
-			node.conn = s.nodes[idx].conn
+		if node.data.addr != s.nodes[idx].data.addr {
+			s.nodes[idx].conn = node.conn
 		}
-		node.transfer = s.nodes[idx].transfer
-		s.nodes[idx] = node
+		//node.transfer = s.nodes[idx].transfer
+		s.nodes[idx].data = node.data
 	}
 	return nil
 }
@@ -132,7 +140,7 @@ func (s *service) updateNode(node *node) error {
 }
 
 func (s *service) checkStatus(oldNode *node, newNode *node) error {
-	var oldStatus int8 = StatusServiceNone
+	var oldStatus int8 = ServiceStatusNone
 	if oldNode != nil {
 		oldStatus = oldNode.data.status
 	}
@@ -143,21 +151,21 @@ func (s *service) checkStatus(oldNode *node, newNode *node) error {
 	}
 
 	switch newStatus {
-	case StatusServiceNone:
-	case StatusServicePending:
-		if oldStatus == StatusServiceNone {
+	case ServiceStatusNone:
+	case ServiceStatusPending:
+		if oldStatus == ServiceStatusNone {
 			//事件 - 不稳定环加节点
 			s.unstableConsistent = s.stableConsistent.Clone()
 			s.unstableConsistent.Add(cons.NewNodeKey(newNode.key, 1))
 			return nil
 		}
-	case StatusServiceRunning:
-		if oldStatus == StatusServicePending {
+	case ServiceStatusRunning:
+		if oldStatus == ServiceStatusPending {
 			//事件 克隆 稳定环 = 不稳定环
 			s.stableConsistent = s.unstableConsistent.Clone()
 			return nil
 		}
-	case StatusServiceStopping:
+	case ServiceStatusStopping:
 		//事件 - 不稳定环删节点
 		if ok := s.unstableConsistent.Remove(newNode.key); !ok {
 			return fmt.Errorf("checkStatus node %v %v unstableConsistent remove key not exist", newNode.key, StatusServiceName[newStatus])

@@ -3,23 +3,23 @@ package services
 import "google.golang.org/grpc"
 
 const (
-	StatusServiceNone = iota
-	StatusServicePending
-	StatusServiceRunning
-	StatusServiceStopping
+	ServiceStatusNone = iota
+	ServiceStatusPending
+	ServiceStatusRunning
+	ServiceStatusStopping
 )
 
 const (
-	StatusTransferNone = iota
-	StatusTransferSucc
-	StatusTransferFail
+	TransferStatusNone = iota
+	TransferStatusSucc
+	TransferStatusFail
 )
 
 var StatusServiceName = map[int8]string{
-	StatusServiceNone:     "NONE",
-	StatusServicePending:  "PENDING",
-	StatusServiceRunning:  "RUNNING",
-	StatusServiceStopping: "STOPPING",
+	ServiceStatusNone:     "NONE",
+	ServiceStatusPending:  "PENDING",
+	ServiceStatusRunning:  "RUNNING",
+	ServiceStatusStopping: "STOPPING",
 }
 
 type nodeData struct {
