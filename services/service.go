@@ -15,11 +15,6 @@ import (
 
 type serviceType int32
 
-const (
-	serviceTypeClient serviceType = 0
-	serviceTypeServer serviceType = 1
-)
-
 var (
 	ErrNoNodes = errors.New("no nodes")
 )
@@ -35,8 +30,8 @@ type service struct {
 	callback           func(nodeName string, nodeStatus int32) error
 }
 
-func newService(name string, typ serviceType) *service {
-	service := &service{name: name, serviceType: typ}
+func newService(name string) *service {
+	service := &service{name: name}
 	service.stableConsistent = cons.NewConsistent()
 	service.unstableConsistent = cons.NewConsistent()
 	return service
