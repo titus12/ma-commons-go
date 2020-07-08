@@ -275,22 +275,22 @@ func (s *service) ServiceName() string {
 	return s.name
 }
 
-func (s *service) SetCallback(fn func(nodeName string, nodeStatus int32) error) {
+func (s *service) SetCallBack(fn func(nodeKey string, nodeStatus int32) error) {
 	s.callback = fn
 }
 
-func (s *service) IsLocalWithStableRing(id int64) (local bool, nodeName string, nodeStatus int8, conn *grpc.ClientConn, err error) {
+func (s *service) IsLocalWithStableRing(id int64) (local bool, nodeKey string, nodeStatus int32, conn *grpc.ClientConn, err error) {
 	node, err := s.getNodeWithConsistentHash(fmt.Sprintf("%d", id), true)
 	if err != nil {
 		return false, "", -1, nil, err
 	}
-	return node.isLocal, node.key, node.data.status, node.conn, nil
+	return node.isLocal, node.key, int32(node.data.status), node.conn, nil
 }
 
-func (s *service) IsLocalWithUnstableRing(id int64) (local bool, nodeName string, nodeStatus int8, conn *grpc.ClientConn, err error) {
+func (s *service) IsLocalWithUnstableRing(id int64) (local bool, nodeKey string, nodeStatus int32, conn *grpc.ClientConn, err error) {
 	node, err := s.getNodeWithConsistentHash(fmt.Sprintf("%d", id), false)
 	if err != nil {
 		return false, "", -1, nil, err
 	}
-	return node.isLocal, node.key, node.data.status, node.conn, nil
+	return node.isLocal, node.key, int32(node.data.status), node.conn, nil
 }
