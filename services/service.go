@@ -50,6 +50,7 @@ func (s *service) isCompleted(exclude string) int32 {
 	return StatusTransferSucc
 }
 
+// todo: 这里是否要加锁，range s.nodes 时 s.nodes 可能会有变化.
 func (s *service) transfer(nodeName string, status int32) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
