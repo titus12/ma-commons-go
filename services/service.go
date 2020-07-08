@@ -3,13 +3,12 @@ package services
 import (
 	"errors"
 	"fmt"
-	log "github.com/sirupsen/logrus"
-	"google.golang.org/grpc"
 	"sync"
 	"sync/atomic"
-)
 
-import (
+	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
+
 	cons "github.com/titus12/ma-commons-go/utils"
 )
 
@@ -19,15 +18,18 @@ var (
 	ErrNoNodes = errors.New("no nodes")
 )
 
+// 服务，一个服务下管理多个节点，这此节点为这个服务提供一致的服务，可以认为一服务是提供同一类型服务的集群
 type service struct {
-	name               string
+	name               string //服务名
 	serviceType        serviceType
-	stableConsistent   *cons.Consistent
-	unstableConsistent *cons.Consistent
-	nodes              []*node
+	stableConsistent   *cons.Consistent // 稳定环，也称老环
+	unstableConsistent *cons.Consistent // 不稳定环，也称新环
+	nodes              []*node          // 服务拥有的节点
 	mu                 sync.RWMutex
 	idx                uint32
-	callback           func(nodeName string, nodeStatus int32) error
+
+	// 由服务管理的actor系统设置进来的回调函数,用于触发actor的牵移操作
+	callback func(nodeName string, nodeStatus int32) error
 }
 
 func newService(name string) *service {
@@ -37,6 +39,7 @@ func newService(name string) *service {
 	return service
 }
 
+// 是否完成，检查服务里所有节点是否正常牵移完数据
 func (s *service) isCompleted(exclude string) int32 {
 	s.mu.RLock()
 	defer s.mu.Unlock()
@@ -53,7 +56,7 @@ func (s *service) isCompleted(exclude string) int32 {
 	return TransferStatusSucc
 }
 
-// todo: 这里是否要加锁，range s.nodes 时 s.nodes 可能会有变化.
+// 给节点设置牵移状态
 func (s *service) transfer(nodeName string, status int32) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -67,6 +70,8 @@ func (s *service) transfer(nodeName string, status int32) bool {
 	return false
 }
 
+// 更新或者插入节点，如果节点存在，则更新，不存在则添加
+// 操作都会checkStatus,checkStatus是对节点的状态进行检查，判断加入到新环还是老环
 func (s *service) upsertNode(node *node) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -97,6 +102,7 @@ func (s *service) upsertNode(node *node) error {
 	return nil
 }
 
+// 添加节点，已经存在的节点不能添加
 func (s *service) addNode(node *node) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -113,6 +119,7 @@ func (s *service) addNode(node *node) error {
 	return nil
 }
 
+// 更新节点，节点不存在不能更新
 func (s *service) updateNode(node *node) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -134,6 +141,8 @@ func (s *service) updateNode(node *node) error {
 	return nil
 }
 
+// 检查节点状态,拿老的节点与新的节点进行比较，判断节点在环上的情况，并根据不同情况
+// 作出对环的操作。（内部调用，都是在有锁的方法中调用，不用加锁）
 func (s *service) checkStatus(oldNode *node, newNode *node) error {
 	var oldStatus int8 = ServiceStatusNone
 	if oldNode != nil {
@@ -170,6 +179,7 @@ func (s *service) checkStatus(oldNode *node, newNode *node) error {
 	return fmt.Errorf("checkStatus node %v no regulation %v -> %v ", newNode.key, StatusServiceName[oldStatus], StatusServiceName[newStatus])
 }
 
+// 删除节点
 func (s *service) delNode(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -185,6 +195,7 @@ func (s *service) delNode(key string) {
 	}
 }
 
+// 获取节点
 func (s *service) getNode(id string) (node, error) {
 	s.mu.RLock()
 	defer s.mu.Unlock()
@@ -218,6 +229,8 @@ func (s *service) getNodeWithHash(hash int) (node, error) {
 	return *s.nodes[idx], nil
 }
 
+// 在一致性哈希的环上获取节点，拿到的节点数据是一个copy，说明拿到的是当前时刻的节点，通过
+// 这份数据进行逻缉操作时是不影响原环上的节点
 func (s *service) getNodeWithConsistentHash(id string, isStable bool) (node, error) {
 	s.mu.RLock()
 	defer s.mu.Unlock()
@@ -256,7 +269,7 @@ func (s *service) getNodes() []node {
 }
 
 /////////////////////////////////////////////////////////////////
-// Wrappers
+// 实现actor包提供的接口
 
 func (s *service) ServiceName() string {
 	return s.name
