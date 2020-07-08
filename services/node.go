@@ -2,13 +2,15 @@ package services
 
 import "google.golang.org/grpc"
 
+// 节点状态
 const (
-	ServiceStatusNone = iota
-	ServiceStatusPending
-	ServiceStatusRunning
-	ServiceStatusStopping
+	ServiceStatusNone     = iota // 节点起动中，还未加入到集群，暂时不可提供服务，可以认为服务就是不存在
+	ServiceStatusPending         // 节点已加入到服务，但是目前还是在等其他节点完成操作（比如数据牵移）
+	ServiceStatusRunning         // 节点处于正常，可对外提供服务
+	ServiceStatusStopping        // 节点正在关闭，节点可以被路由到，但不对外提供服务
 )
 
+// 牵移状态
 const (
 	TransferStatusNone = iota
 	TransferStatusSucc
@@ -22,14 +24,15 @@ var StatusServiceName = map[int8]string{
 	ServiceStatusStopping: "STOPPING",
 }
 
+// 节点数据
 type nodeData struct {
-	addr   string `json:"addr"`
-	status int8   `json:"status"`
+	addr   string `json:"addr"`   //ip:port
+	status int8   `json:"status"` // 节点状态
 }
 
-// a single connection
+// 节点
 type node struct {
-	key      string
+	key      string // 可以认为是节点的唯一标记
 	conn     *grpc.ClientConn
 	data     nodeData
 	isLocal  bool

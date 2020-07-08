@@ -4,15 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	_ "fmt"
-	"github.com/coreos/etcd/clientv3/concurrency"
-	"github.com/coreos/etcd/mvcc/mvccpb"
-	"github.com/pkg/errors"
-	"github.com/titus12/ma-commons-go/utils"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/coreos/etcd/clientv3/concurrency"
+	"github.com/coreos/etcd/mvcc/mvccpb"
+	"github.com/pkg/errors"
+	"github.com/titus12/ma-commons-go/utils"
 
 	etcdclient "github.com/coreos/etcd/clientv3"
 	log "github.com/sirupsen/logrus"
@@ -47,7 +48,12 @@ var (
 	once         sync.Once
 )
 
-// Init() ***MUST*** be called before using
+// 初始化，在使用前必须调用
+// root: 在etcd的根路径， 这个路径一定要以 / 开始, 实际上这个根路径是在 etcd 中 /root下的，比如参数root=/abc,那么就是/root/abc
+// serviceNames: 本身初始化打算支持的服务有哪些
+// selfServiceName: 自已是什么服务
+// selfNodeName: 自已节点的名称
+// selfNodeAddr: 自已节点的ip地址
 func Init(root string, hosts, serviceNames []string, selfServiceName, selfNodeName, selfNodeAddr string) {
 	once.Do(func() {
 		_retryMgr.init()
@@ -113,7 +119,7 @@ func (p *retryManager) cycleCheck() {
 	}
 }
 
-// all services
+// 服务池，容纳所有服务
 type servicePool struct {
 	root            string
 	selfNodeName    string
@@ -158,6 +164,7 @@ func (p *servicePool) init(root string, hosts, serviceNames []string, selfServic
 	}
 }
 
+// 工作
 type work struct {
 	jobGroup    chan *mvccpb.KeyValue
 	resultGroup chan string
@@ -165,14 +172,17 @@ type work struct {
 	jobsNum     int
 }
 
+// 向工作中添加任务
 func (w *work) addJob(job *mvccpb.KeyValue) {
 	w.jobGroup <- job
 }
 
+// 返回工作结果
 func (w *work) result() string {
 	return <-w.resultGroup
 }
 
+// 开始工作
 func (w *work) start() {
 	w.jobsNum = w.jobCount()
 	worker := w.jobsNum/2 + 1
@@ -181,6 +191,7 @@ func (w *work) start() {
 	}
 }
 
+// 在工作上进行等待
 func (w *work) wait(ctx context.Context) error {
 	if w.jobsNum <= 0 {
 		return nil
@@ -205,6 +216,7 @@ func (w *work) jobCount() int {
 	return len(w.jobGroup)
 }
 
+// 构建一个工作
 func (p *servicePool) makeWork(queueSize int) (*work, func()) {
 	w := &work{
 		jobGroup:    make(chan *mvccpb.KeyValue, queueSize),
@@ -230,7 +242,7 @@ func (p *servicePool) makeWork(queueSize int) (*work, func()) {
 	}
 }
 
-// Agent as client, It should not be included in the services
+// 开启一个服务的代理客户端，本身不做为服务
 func (p *servicePool) startClient(ctx context.Context) error {
 	w, cancel := p.makeWork(1024)
 	defer cancel()
@@ -269,6 +281,7 @@ func (p *servicePool) startClient(ctx context.Context) error {
 	return w.wait(ctx)
 }
 
+// 开启一个服务的服务器
 func (p *servicePool) startServer(ctx context.Context, port int, startup func(*grpc.Server, *service) error) {
 	sw, err := NewServerWrapper(fmt.Sprintf(":%d", port))
 	if err != nil {
@@ -359,6 +372,7 @@ StartServerDone:
 	log.Infof("node %v startup completed", p.selfNodeName)
 }
 
+// 停止一个节点
 func (p *servicePool) stopNode(nodePath string, node *node) error {
 	servicePath := getDir(nodePath)
 	if p.namesProvided && !p.knownNames[servicePath] {
@@ -393,6 +407,7 @@ func (p *servicePool) stopNode(nodePath string, node *node) error {
 	return nil
 }
 
+// 变更一个节点的牵移状态
 func (p *servicePool) transfer(key string, status int32) error {
 	servicePath := getDir(key)
 	service := p.services[servicePath]
@@ -403,7 +418,7 @@ func (p *servicePool) transfer(key string, status int32) error {
 	return nil
 }
 
-// watcher for data change in etcd directory
+// 监控etcd，监控一个服务的事件发生
 func (p *servicePool) watcher(serviceName string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -446,7 +461,7 @@ func (p *servicePool) watcher(serviceName string) error {
 	return nil
 }
 
-// connect to all nodes of the service
+// 初始化所有节点
 func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 	kAPI := etcdclient.NewKV(p.client)
 	// get the keys under directory
@@ -474,7 +489,7 @@ func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 	return nil
 }
 
-// add a node
+// 添加或者更新一个节点
 func (p *servicePool) upsertNode(key string, value []byte, isCallback bool) bool {
 	servicePath := getDir(key)
 	if p.namesProvided && !p.knownNames[servicePath] {
@@ -556,7 +571,7 @@ func (p *servicePool) eventOnDestroy(nodeName string) {
 	}
 }
 
-// remove a node
+// 删除节点
 func (p *servicePool) removeNode(key string) {
 	// name check
 	nodeName := getFileName(key)
@@ -572,6 +587,7 @@ func (p *servicePool) removeNode(key string) {
 	}
 }
 
+// 向etcd更新节点数据
 func (p *servicePool) updateNodeData(nodePath string, nodeData *nodeData) error {
 	servicePath := filepath.Dir(nodePath)
 	if p.namesProvided && !p.knownNames[servicePath] {
@@ -590,6 +606,7 @@ func (p *servicePool) updateNodeData(nodePath string, nodeData *nodeData) error 
 	return err
 }
 
+// 向etcd移除节点数据
 func (p *servicePool) RemoveNodeData(nodePath string) error {
 	servicePath := filepath.Dir(nodePath)
 	if p.namesProvided && !p.knownNames[servicePath] {

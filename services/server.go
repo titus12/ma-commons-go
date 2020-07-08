@@ -2,12 +2,13 @@ package services
 
 import (
 	"context"
+	"math"
+	"net"
+
 	log "github.com/sirupsen/logrus"
 	gp "github.com/titus12/ma-commons-go/services/pb-grpc"
 	"github.com/titus12/ma-commons-go/utils"
 	"google.golang.org/grpc"
-	"math"
-	"net"
 )
 
 type server struct{}
@@ -17,6 +18,7 @@ type serverWrapper struct {
 	gServer  *grpc.Server
 }
 
+// 接收牵移状态通知的，告知某节点数据牵移完成
 func (s *server) Notify(cxt context.Context, node *gp.Node) (*gp.Result, error) {
 	defer utils.PrintPanicStack()
 	result := &gp.Result{ErrorCode: 0, Error: ""}
@@ -44,6 +46,7 @@ func NewServerWrapper(listen string) (*serverWrapper, error) {
 	return serverWrapper, nil
 }
 
+// 启动服务器
 func (s *serverWrapper) Start() error {
 	err := s.gServer.Serve(*s.listener)
 	log.Infof("开始监听服务")
