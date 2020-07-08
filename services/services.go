@@ -120,10 +120,10 @@ type servicePool struct {
 	selfServiceName string
 	selfNodeAddr    string
 	services        map[string]*service
-	knownNames      map[string]bool
+	knownNames      map[string]bool // service provided
 	namesProvided   bool
 	client          *etcdclient.Client
-	event           sync.Map // service add callback notify
+	event           sync.Map // service event notify
 }
 
 func (p *servicePool) init(root string, hosts, serviceNames []string, selfServiceName, selfNodeName, selfNodeAddr string) {
@@ -230,9 +230,26 @@ func (p *servicePool) makeWork(queueSize int) (*work, func()) {
 	}
 }
 
+// Agent as client, It should not be included in the services
 func (p *servicePool) startClient(ctx context.Context) error {
 	w, cancel := p.makeWork(1024)
 	defer cancel()
+	defer func() {
+		servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
+		if p.services[servicePath] == nil {
+			nodePath := joinPath(servicePath, p.selfNodeName)
+			go func() {
+				err := p.watcher(nodePath)
+				if err != nil {
+					log.Fatalf("startClient watcher err %v", err)
+				}
+			}()
+			if err := p.updateNodeData(nodePath, &nodeData{p.selfNodeAddr, ServiceStatusRunning}); err != nil {
+				log.Fatalf("startClient updateNodeData %v %v err %v", nodePath, ServiceStatusRunning, err)
+			}
+		}
+	}()
+
 	for k, _ := range p.services {
 		if k == p.selfServiceName {
 			continue
@@ -318,6 +335,7 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 			if err := p.stopNode(nodePath, node); err != nil {
 				log.Error("startServer updateNode stop %v %v err %v", node.key, StatusServiceName[status], err)
 			}
+			log.Errorf("startServer %v startup failure", p.selfNodeName)
 			os.Exit(0)
 		case TransferStatusSucc:
 			node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, ServiceStatusRunning}, true, TransferStatusSucc)
@@ -368,11 +386,6 @@ func (p *servicePool) stopNode(nodePath string, node *node) error {
 	}
 	for {
 		if err := p.RemoveNodeData(nodePath); err == nil {
-			event, ok := p.event.Load(eventOnDestroy)
-			if ok {
-				destroy := event.(func(key string, status int8))
-				destroy(node.key, node.data.status)
-			}
 			break
 		}
 		time.Sleep(time.Second)
@@ -535,23 +548,28 @@ func (p *servicePool) upsertNode(key string, value []byte, isCallback bool) bool
 	return true
 }
 
+func (p *servicePool) eventOnDestroy(nodeName string) {
+	event, ok := p.event.Load(eventOnDestroy)
+	if ok {
+		destroy := event.(func(key string, status int8))
+		destroy(nodeName, ServiceStatusRunning)
+	}
+}
+
 // remove a node
 func (p *servicePool) removeNode(key string) {
 	// name check
+	nodeName := getFileName(key)
 	servicePath := filepath.Dir(key)
-	if p.namesProvided && !p.knownNames[servicePath] {
-		return
-	}
 
 	// check service kind
 	service := p.services[servicePath]
-	if service == nil {
-		log.Errorf("removeNode service not exists: %v", servicePath)
-		return
+	if service != nil {
+		service.delNode(nodeName)
 	}
-	nodeName := getFileName(key)
-	// remove a node
-	service.delNode(nodeName)
+	if nodeName == p.selfNodeName {
+		p.eventOnDestroy(nodeName)
+	}
 }
 
 func (p *servicePool) updateNodeData(nodePath string, nodeData *nodeData) error {
