@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package pb;
+
+message ActorDesc {
+    int64 id = 1;            //id
+    string system = 2;       //系统
+}
+
+// 重定向消息
+message RedirectInfo {
+    string    node_key = 1;      //节点key
+    int32     node_status = 2;    //节点状态
+}
+
+message WrapMsg {
+    string  msg_type = 1;      //消息名称
+    bytes   msg_data = 2;      //消息数据
+}
+
+// 请求消息
+message RequestMsg {
+    ActorDesc     sender         = 1;        //发送者
+    ActorDesc     target         = 2;        //接收者
+    int64         req_id         = 3;        //如果是请求消息会有请求id
+
+    RedirectInfo  redirect       = 4;        //重定向信息
+
+    bool          is_respond     = 5;        //是否响应
+
+    WrapMsg       data           = 6;  //数据
+
+}
+
+// 响应消息
+message ResponseMsg {
+    ActorDesc         resper = 1;  //响应者
+    int64             req_id = 2;       //请求id
+    WrapMsg           data   = 3;     //数据
+}
+
+
+service RemoteService {
+    rpc Request(RequestMsg) returns (ResponseMsg);
+}
