@@ -5,7 +5,7 @@ go 1.13
 require (
 	github.com/Shopify/sarama v1.24.1
 	github.com/coreos/bbolt v1.3.3 // indirect
-	github.com/coreos/etcd v3.3.22+incompatible
+	github.com/coreos/etcd v3.3.17+incompatible
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf // indirect
 	github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f // indirect
@@ -28,7 +28,6 @@ require (
 	github.com/klauspost/reedsolomon v1.9.3 // indirect
 	github.com/onsi/ginkgo v1.12.0 // indirect
 	github.com/onsi/gomega v1.9.0 // indirect
-	github.com/orcaman/concurrent-map v0.0.0-20190826125027-8c72a8bb44f6
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.2.1 // indirect
 	github.com/prometheus/common v0.7.0

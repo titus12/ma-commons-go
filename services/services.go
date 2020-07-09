@@ -2,6 +2,7 @@ package services
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	_ "fmt"
 	"os"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/coreos/etcd/clientv3/concurrency"
 	"github.com/coreos/etcd/mvcc/mvccpb"
-	"github.com/pkg/errors"
 	"github.com/titus12/ma-commons-go/utils"
 
 	etcdclient "github.com/coreos/etcd/clientv3"
@@ -264,10 +264,9 @@ func (p *servicePool) startClient(ctx context.Context) error {
 			}
 		}
 	}()
-
-	// todo: 这里selfServiceName不是全名称，与k判断必然跳过
+	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
 	for k, _ := range p.services {
-		if k == p.selfServiceName {
+		if k == servicePath {
 			continue
 		}
 		go func() {
