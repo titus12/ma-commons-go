@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"google.golang.org/protobuf/proto"
+	"github.com/titus12/ma-commons-go/actor/pb"
+
+	"github.com/golang/protobuf/proto"
+	"github.com/sirupsen/logrus"
 
 	"google.golang.org/grpc"
-
-	"github.com/sirupsen/logrus"
-	"github.com/titus12/ma-commons-go/actor/pb"
 )
 
 type remoteServiceImpl struct{}
@@ -69,9 +69,10 @@ func (service *remoteServiceImpl) Request(ctx context.Context, req *pb.RequestMs
 			return
 		}
 
-		wrapMsg, err := pb.NewWrapMsg(protoRespMsg)
+		var wrapMsg *pb.WrapMsg
+		wrapMsg, err = pb.NewWrapMsg(protoRespMsg)
 		if err != nil {
-			return
+			return nil, err
 		}
 
 		resp = &pb.ResponseMsg{
@@ -86,6 +87,7 @@ func (service *remoteServiceImpl) Request(ctx context.Context, req *pb.RequestMs
 		}
 	}
 	return
+
 }
 
 func startRemoteServer(grpcServer *grpc.Server) {

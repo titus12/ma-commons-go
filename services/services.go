@@ -34,7 +34,7 @@ const (
 
 var errStatusDuplicated = errors.New("checkStatus node status duplicated")
 
-// a kind of service
+// a kind of Service
 
 // retries
 type retryManager struct {
@@ -50,14 +50,15 @@ var (
 
 // 初始化，在使用前必须调用
 // root: 在etcd的根路径， 这个路径一定要以 / 开始, 实际上这个根路径是在 etcd 中 /root下的，比如参数root=/abc,那么就是/root/abc
+// etcdHosts: etcd地址.
 // serviceNames: 本身初始化打算支持的服务有哪些
 // selfServiceName: 自已是什么服务
 // selfNodeName: 自已节点的名称
 // selfNodeAddr: 自已节点的ip地址
-func Init(root string, hosts, serviceNames []string, selfServiceName, selfNodeName, selfNodeAddr string) {
+func Init(root string, etcdHosts, serviceNames []string, selfServiceName, selfNodeName, selfNodeAddr string) {
 	once.Do(func() {
 		_retryMgr.init()
-		_defaultPool.init(root, hosts, serviceNames, selfServiceName, selfNodeName, selfNodeAddr)
+		_defaultPool.init(root, etcdHosts, serviceNames, selfServiceName, selfNodeName, selfNodeAddr)
 		timerStart()
 	})
 }
@@ -125,17 +126,17 @@ type servicePool struct {
 	selfNodeName    string
 	selfServiceName string
 	selfNodeAddr    string
-	services        map[string]*service
-	knownNames      map[string]bool // service provided
+	services        map[string]*Service
+	knownNames      map[string]bool // Service provided
 	namesProvided   bool
 	client          *etcdclient.Client
-	event           sync.Map // service event notify
+	event           sync.Map // Service event notify
 }
 
-func (p *servicePool) init(root string, hosts, serviceNames []string, selfServiceName, selfNodeName, selfNodeAddr string) {
+func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfServiceName, selfNodeName, selfNodeAddr string) {
 	// init etcd node
 	cfg := etcdclient.Config{
-		Endpoints:   hosts,
+		Endpoints:   etcdHosts,
 		DialTimeout: DefaultTimeout,
 	}
 	c, err := etcdclient.New(cfg)
@@ -145,18 +146,20 @@ func (p *servicePool) init(root string, hosts, serviceNames []string, selfServic
 	}
 	p.client = c
 	p.root = "/root" + root
+
+	//todo: 下面三个是准备都是全名称，还是简称
 	p.selfServiceName = selfServiceName
 	p.selfNodeName = selfNodeName
 	p.selfNodeAddr = selfNodeAddr
 	// init
-	p.services = make(map[string]*service)
+	p.services = make(map[string]*Service)
 	p.knownNames = make(map[string]bool)
 
 	if len(serviceNames) > 0 {
 		p.namesProvided = true
 	}
 
-	log.Infof("all service serviceNames:%v", serviceNames)
+	log.Infof("all Service serviceNames:%v", serviceNames)
 	for _, v := range serviceNames {
 		servicePath := joinPath(p.root, strings.TrimSpace(v))
 		p.knownNames[servicePath] = true
@@ -202,7 +205,7 @@ func (w *work) wait(ctx context.Context) error {
 			if !ok {
 				return fmt.Errorf("start resultServiceJob close")
 			}
-			log.Infof("start add service node %v", key)
+			log.Infof("start add Service node %v", key)
 			if w.jobsNum--; w.jobsNum <= 0 {
 				return nil
 			}
@@ -262,6 +265,7 @@ func (p *servicePool) startClient(ctx context.Context) error {
 		}
 	}()
 
+	// todo: 这里selfServiceName不是全名称，与k判断必然跳过
 	for k, _ := range p.services {
 		if k == p.selfServiceName {
 			continue
@@ -282,7 +286,7 @@ func (p *servicePool) startClient(ctx context.Context) error {
 }
 
 // 开启一个服务的服务器
-func (p *servicePool) startServer(ctx context.Context, port int, startup func(*grpc.Server, *service) error) {
+func (p *servicePool) startServer(ctx context.Context, port int, startup func(*grpc.Server, *Service) error) {
 	sw, err := NewServerWrapper(fmt.Sprintf(":%d", port))
 	if err != nil {
 		log.Fatalf("startServer %v err %v", port, err)
@@ -293,7 +297,7 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
 	mtx, err := p.newMutex(p.selfServiceName)
 	if err != nil {
-		log.Fatalf("lock service err %v", err)
+		log.Fatalf("lock Service err %v", err)
 	}
 	mtx.Lock(context.TODO())
 	defer mtx.Unlock(context.TODO())
@@ -465,7 +469,7 @@ func (p *servicePool) watcher(serviceName string) error {
 func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 	kAPI := etcdclient.NewKV(p.client)
 	// get the keys under directory
-	log.Infof("initNodesOfService service under:%v", servicePath)
+	log.Infof("initNodesOfService Service under:%v", servicePath)
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	resp, err := kAPI.Get(ctx, servicePath, etcdclient.WithPrefix())
 	cancel()
@@ -507,7 +511,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 	}
 	nodeName := getFileName(key)
 	service := p.services[servicePath]
-	// create service connection
+	// create Service connection
 	if nodeName == p.selfNodeName {
 		node := NewNode(nodeName, nil, *info, true, TransferStatusSucc)
 		err = service.upsertNode(node)
@@ -524,7 +528,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 		conn, err := grpc.DialContext(ctx, info.addr, grpc.WithBlock())
 		cancel()
 		if err != nil {
-			log.Errorf("upsertNode service connect %v - %v, Error: %v", key, value, err)
+			log.Errorf("upsertNode Service connect %v - %v, Error: %v", key, value, err)
 			return false
 		}
 		node := NewNode(nodeName, conn, *info, false, 0)
@@ -577,7 +581,7 @@ func (p *servicePool) removeNode(key string) {
 	nodeName := getFileName(key)
 	servicePath := filepath.Dir(key)
 
-	// check service kind
+	// check Service kind
 	service := p.services[servicePath]
 	if service != nil {
 		service.delNode(nodeName)
@@ -621,36 +625,36 @@ func (p *servicePool) RemoveNodeData(nodePath string) error {
 	return err
 }
 
-// provide a specific key for a service, eg:
+// provide a specific key for a Service, eg:
 // path:/backends/game, id:game001
 //
-// the full cannonical path for this service is:
+// the full cannonical path for this Service is:
 // /backends/game/game001 172.168.0.1:8000
 func (p *servicePool) getServiceWithId(servicePath string, id string) (node, error) {
 	// check existence
 	service := p.services[servicePath]
 	if service == nil {
-		return node{}, fmt.Errorf("service %v is nil", servicePath)
+		return node{}, fmt.Errorf("Service %v is nil", servicePath)
 	}
 	return service.getNode(id)
 }
 
-// get a service in round-robin style
+// get a Service in round-robin style
 // especially useful for load-balance with vars-less services
 func (p *servicePool) getServiceWithRoundRobin(servicePath string) (node, error) {
 	// check existence
 	service := p.services[servicePath]
 	if service == nil {
-		return node{}, fmt.Errorf("service %v is nil", servicePath)
+		return node{}, fmt.Errorf("Service %v is nil", servicePath)
 	}
-	// get a service in round-robind style
+	// get a Service in round-robind style
 	return service.getNodeWithRoundRobin()
 }
 
 func (p *servicePool) getServiceWithHash(servicePath string, hash int) (node, error) {
 	service := p.services[servicePath]
 	if service == nil {
-		return node{}, fmt.Errorf("service %v is nil", servicePath)
+		return node{}, fmt.Errorf("Service %v is nil", servicePath)
 	}
 	return service.getNodeWithHash(hash)
 }
@@ -658,7 +662,7 @@ func (p *servicePool) getServiceWithHash(servicePath string, hash int) (node, er
 func (p *servicePool) getServiceWithConsistentHash(servicePath string, key string) (node, error) {
 	service := p.services[servicePath]
 	if service == nil {
-		return node{}, fmt.Errorf("service %v is nil", servicePath)
+		return node{}, fmt.Errorf("Service %v is nil", servicePath)
 	}
 	return service.getNodeWithConsistentHash(key, true)
 }
@@ -666,7 +670,7 @@ func (p *servicePool) getServiceWithConsistentHash(servicePath string, key strin
 func (p *servicePool) getServices(servicePath string) ([]node, error) {
 	service := p.services[servicePath]
 	if service == nil {
-		return nil, fmt.Errorf("service %v is nil", servicePath)
+		return nil, fmt.Errorf("Service %v is nil", servicePath)
 	}
 	return service.getNodes(), nil
 }
@@ -753,7 +757,7 @@ func SyncStartClient(ctx context.Context) error {
 	return _defaultPool.startClient(ctx)
 }
 
-func SyncStartService(ctx context.Context, port int, startup func(*grpc.Server, *service) error) {
+func SyncStartService(ctx context.Context, port int, startup func(*grpc.Server, *Service) error) {
 	_defaultPool.startServer(ctx, port, startup)
 }
 
@@ -761,7 +765,7 @@ func transfer(key string, status int32) error {
 	return _defaultPool.transfer(key, status)
 }
 
-func GetService(serviceName string) *service {
+func GetService(serviceName string) *Service {
 	return _defaultPool.services[serviceName]
 }
 

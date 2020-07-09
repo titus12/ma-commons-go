@@ -19,7 +19,9 @@ var (
 )
 
 // 服务，一个服务下管理多个节点，这此节点为这个服务提供一致的服务，可以认为一服务是提供同一类型服务的集群
-type service struct {
+
+// bug: 改成大小的，包外可以访问类型(已改）
+type Service struct {
 	name               string //服务名
 	serviceType        serviceType
 	stableConsistent   *cons.Consistent // 稳定环，也称老环
@@ -32,15 +34,15 @@ type service struct {
 	callback func(nodeName string, nodeStatus int32) error
 }
 
-func newService(name string) *service {
-	service := &service{name: name}
+func newService(name string) *Service {
+	service := &Service{name: name}
 	service.stableConsistent = cons.NewConsistent()
 	service.unstableConsistent = cons.NewConsistent()
 	return service
 }
 
 // 是否完成，检查服务里所有节点是否正常牵移完数据
-func (s *service) isCompleted(exclude string) int32 {
+func (s *Service) isCompleted(exclude string) int32 {
 	s.mu.RLock()
 	defer s.mu.Unlock()
 	for _, v := range s.nodes {
@@ -57,7 +59,7 @@ func (s *service) isCompleted(exclude string) int32 {
 }
 
 // 给节点设置牵移状态
-func (s *service) transfer(nodeName string, status int32) bool {
+func (s *Service) transfer(nodeName string, status int32) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, v := range s.nodes {
@@ -72,7 +74,7 @@ func (s *service) transfer(nodeName string, status int32) bool {
 
 // 更新或者插入节点，如果节点存在，则更新，不存在则添加
 // 操作都会checkStatus,checkStatus是对节点的状态进行检查，判断加入到新环还是老环
-func (s *service) upsertNode(node *node) error {
+func (s *Service) upsertNode(node *node) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	idx := -1
@@ -103,7 +105,7 @@ func (s *service) upsertNode(node *node) error {
 }
 
 // 添加节点，已经存在的节点不能添加
-func (s *service) addNode(node *node) error {
+func (s *Service) addNode(node *node) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, v := range s.nodes {
@@ -120,7 +122,7 @@ func (s *service) addNode(node *node) error {
 }
 
 // 更新节点，节点不存在不能更新
-func (s *service) updateNode(node *node) error {
+func (s *Service) updateNode(node *node) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	idx := -1
@@ -143,7 +145,7 @@ func (s *service) updateNode(node *node) error {
 
 // 检查节点状态,拿老的节点与新的节点进行比较，判断节点在环上的情况，并根据不同情况
 // 作出对环的操作。（内部调用，都是在有锁的方法中调用，不用加锁）
-func (s *service) checkStatus(oldNode *node, newNode *node) error {
+func (s *Service) checkStatus(oldNode *node, newNode *node) error {
 	var oldStatus int8 = ServiceStatusNone
 	if oldNode != nil {
 		oldStatus = oldNode.data.status
@@ -180,7 +182,7 @@ func (s *service) checkStatus(oldNode *node, newNode *node) error {
 }
 
 // 删除节点
-func (s *service) delNode(key string) {
+func (s *Service) delNode(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for k, v := range s.nodes {
@@ -189,14 +191,14 @@ func (s *service) delNode(key string) {
 			s.unstableConsistent.Remove(key)
 			s.nodes = append(s.nodes[:k], s.nodes[k+1:]...)
 			v.conn.Close()
-			log.Infof("service removed: %v", key)
+			log.Infof("Service removed: %v", key)
 			return
 		}
 	}
 }
 
 // 获取节点
-func (s *service) getNode(id string) (node, error) {
+func (s *Service) getNode(id string) (node, error) {
 	s.mu.RLock()
 	defer s.mu.Unlock()
 	for k := range s.nodes {
@@ -207,7 +209,7 @@ func (s *service) getNode(id string) (node, error) {
 	return node{}, fmt.Errorf("node %v id %v is not exist", s.name, id)
 }
 
-func (s *service) getNodeWithRoundRobin() (node, error) {
+func (s *Service) getNodeWithRoundRobin() (node, error) {
 	s.mu.RLock()
 	defer s.mu.Unlock()
 	count := len(s.nodes)
@@ -218,7 +220,7 @@ func (s *service) getNodeWithRoundRobin() (node, error) {
 	return *s.nodes[idx], nil
 }
 
-func (s *service) getNodeWithHash(hash int) (node, error) {
+func (s *Service) getNodeWithHash(hash int) (node, error) {
 	s.mu.RLock()
 	defer s.mu.Unlock()
 	count := len(s.nodes)
@@ -231,7 +233,7 @@ func (s *service) getNodeWithHash(hash int) (node, error) {
 
 // 在一致性哈希的环上获取节点，拿到的节点数据是一个copy，说明拿到的是当前时刻的节点，通过
 // 这份数据进行逻缉操作时是不影响原环上的节点
-func (s *service) getNodeWithConsistentHash(id string, isStable bool) (node, error) {
+func (s *Service) getNodeWithConsistentHash(id string, isStable bool) (node, error) {
 	s.mu.RLock()
 	defer s.mu.Unlock()
 	count := len(s.nodes)
@@ -257,7 +259,7 @@ func (s *service) getNodeWithConsistentHash(id string, isStable bool) (node, err
 	return node{}, fmt.Errorf("no found node id %v isStable %v", id, isStable)
 }
 
-func (s *service) getNodes() []node {
+func (s *Service) getNodes() []node {
 	s.mu.RLock()
 	defer s.mu.Unlock()
 	nodes := make([]node, 0, len(s.nodes))
@@ -271,15 +273,15 @@ func (s *service) getNodes() []node {
 /////////////////////////////////////////////////////////////////
 // 实现actor包提供的接口
 
-func (s *service) ServiceName() string {
+func (s *Service) ServiceName() string {
 	return s.name
 }
 
-func (s *service) SetCallBack(fn func(nodeKey string, nodeStatus int32) error) {
+func (s *Service) SetCallBack(fn func(nodeKey string, nodeStatus int32) error) {
 	s.callback = fn
 }
 
-func (s *service) IsLocalWithStableRing(id int64) (local bool, nodeKey string, nodeStatus int32, conn *grpc.ClientConn, err error) {
+func (s *Service) IsLocalWithStableRing(id int64) (local bool, nodeKey string, nodeStatus int32, conn *grpc.ClientConn, err error) {
 	node, err := s.getNodeWithConsistentHash(fmt.Sprintf("%d", id), true)
 	if err != nil {
 		return false, "", -1, nil, err
@@ -287,7 +289,7 @@ func (s *service) IsLocalWithStableRing(id int64) (local bool, nodeKey string, n
 	return node.isLocal, node.key, int32(node.data.status), node.conn, nil
 }
 
-func (s *service) IsLocalWithUnstableRing(id int64) (local bool, nodeKey string, nodeStatus int32, conn *grpc.ClientConn, err error) {
+func (s *Service) IsLocalWithUnstableRing(id int64) (local bool, nodeKey string, nodeStatus int32, conn *grpc.ClientConn, err error) {
 	node, err := s.getNodeWithConsistentHash(fmt.Sprintf("%d", id), false)
 	if err != nil {
 		return false, "", -1, nil, err
