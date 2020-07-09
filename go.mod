@@ -15,7 +15,7 @@ require (
 	github.com/go-redis/redis/v7 v7.2.0
 	github.com/gogo/protobuf v1.3.1 // indirect
 	github.com/golang/groupcache v0.0.0-20191027212112-611e8accdfc9 // indirect
-	github.com/golang/protobuf v1.4.2
+	github.com/golang/protobuf v1.3.2
 	github.com/google/btree v1.0.0 // indirect
 	github.com/google/uuid v1.1.1
 	github.com/gorilla/websocket v1.4.1 // indirect
@@ -43,12 +43,10 @@ require (
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
 	github.com/xtaci/kcp-go v5.4.18+incompatible
 	github.com/xtaci/lossyconn v0.0.0-20190602105132-8df528c0c9ae // indirect
-	gitlab.gg.com/game_framework/gameser v0.0.0-20200708102837-c8949b1cf073 // indirect
 	go.etcd.io/bbolt v1.3.3 // indirect
 	golang.org/x/net v0.0.0-20191105084925-a882066a44e0
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0 // indirect
-	google.golang.org/grpc v1.30.0
-	google.golang.org/protobuf v1.25.0
+	google.golang.org/grpc v1.26.0
 	k8s.io/api v0.0.0-20190620084959-7cf5895f2711
 	k8s.io/apimachinery v0.0.0-20190612205821-1799e75a0719
 	k8s.io/client-go v0.0.0-20190620085101-78d2af792bab

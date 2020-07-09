@@ -2,16 +2,18 @@ package actor
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync/atomic"
+
+	"github.com/titus12/ma-commons-go/actor/pb"
+
+	"github.com/pkg/errors"
 
 	"github.com/sirupsen/logrus"
 
 	"google.golang.org/grpc"
 
-	"github.com/titus12/ma-commons-go/actor/pb"
-	"google.golang.org/protobuf/proto"
+	"github.com/golang/protobuf/proto"
 )
 
 // 用于响应的接口，凡实现此接口的用于接收actor的响应

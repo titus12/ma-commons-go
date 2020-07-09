@@ -9,9 +9,8 @@ import (
 
 	"github.com/titus12/ma-commons-go/actor/pb"
 
-	"google.golang.org/grpc"
-
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
 )
 
 const DefaultQueueSize = 1024                 //默认每个actor的队列长度
