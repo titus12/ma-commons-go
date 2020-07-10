@@ -44,7 +44,7 @@ func newService(name string) *Service {
 // 是否完成，检查服务里所有节点是否正常牵移完数据
 func (s *Service) isCompleted(exclude string) int32 {
 	s.mu.RLock()
-	defer s.mu.Unlock()
+	defer s.mu.RUnlock()
 	for _, v := range s.nodes {
 		if v.key == exclude {
 			continue

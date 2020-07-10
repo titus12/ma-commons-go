@@ -391,7 +391,7 @@ func (p *servicePool) stopNode(nodePath string, node *node) error {
 
 	for {
 		if err := p.updateNodeData(nodePath, &node.data); err != nil {
-			log.Error("startServer updateNodeData %v %v err %v", nodePath, StatusServiceName[node.data.status], err)
+			log.Error("startServer updateNodeData %v %v err %v", nodePath, StatusServiceName[node.data.Status], err)
 		} else {
 			break
 		}
@@ -477,6 +477,13 @@ func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 	}
 
 	for _, ev := range resp.Kvs {
+
+		// todo: 下面这里要多注意，检查一下其他地方是否有类似的，这里主要是跳过作为目录的key
+		// todo： 比如这里servicePath本身是是一个目录，这类型key不能解析，否则会出错。
+		keystr := utils.BytesToString(ev.Key)
+		if keystr == servicePath {
+			continue
+		}
 		info := &nodeData{}
 		err := json.Unmarshal(ev.Value, info)
 		if err != nil {
