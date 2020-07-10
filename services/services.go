@@ -32,7 +32,7 @@ const (
 	eventOnFatal   = "OnFatal"
 )
 
-var errStatusDuplicated = errors.New("checkStatus node status duplicated")
+var errStatusDuplicated = errors.New("checkStatus node Status duplicated")
 
 // a kind of Service
 
@@ -333,16 +333,16 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	nodePath := joinPath(servicePath, p.selfNodeName)
 	node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, ServiceStatusPending}, true, TransferStatusSucc)
 	if err := service.addNode(node); err != nil {
-		log.Fatalf("startServer upsertNode %v %v err %v", node.key, StatusServiceName[node.data.status], err)
+		log.Fatalf("startServer upsertNode %v %v err %v", node.key, StatusServiceName[node.data.Status], err)
 	}
 
 	if err := p.updateNodeData(nodePath, &node.data); err != nil {
 		log.Fatalf("startServer updateNodeData %v %v err %v", nodePath, ServiceStatusPending, err)
 	}
 
-	//loop check to status ServiceStatusRunning
+	//loop check to Status ServiceStatusRunning
 	log.Infof("startServer start to check whether nodes are ready")
-	status := node.data.status
+	status := node.data.Status
 	for {
 		transfer := service.isCompleted(p.selfNodeName)
 		switch transfer {
@@ -397,7 +397,7 @@ func (p *servicePool) stopNode(nodePath string, node *node) error {
 		}
 	}
 
-	err := service.callback(node.key, int32(node.data.status))
+	err := service.callback(node.key, node.data.Status)
 	if err != nil {
 		log.Errorf("stopNode callback %v err %v", node.key, err)
 	}
@@ -482,7 +482,7 @@ func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 		if err != nil {
 			return fmt.Errorf("initNodesOfService nodeData Parse value:%v, err:%v", string(ev.Key), err)
 		}
-		if info.status == ServiceStatusNone {
+		if info.Status == ServiceStatusNone {
 			continue
 		}
 		w.addJob(ev)
@@ -504,7 +504,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 		log.Errorf("upsertNode nodeData Parse value:%v, err:%v", value, err)
 		return false
 	}
-	if info.status == ServiceStatusNone {
+	if info.Status == ServiceStatusNone {
 		return true
 	}
 	nodeName := getFileName(key)
@@ -523,7 +523,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 		log.Infof("upsertNode local %v - %v", key, value)
 	} else {
 		ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
-		conn, err := grpc.DialContext(ctx, info.addr, grpc.WithBlock())
+		conn, err := grpc.DialContext(ctx, info.Addr, grpc.WithBlock())
 		cancel()
 		if err != nil {
 			log.Errorf("upsertNode Service connect %v - %v, Error: %v", key, value, err)
@@ -536,8 +536,8 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 			return false
 		}
 		log.Infof("upsertNode remote %v - %v", key, value)
-		if node.data.status == ServiceStatusPending {
-			err := service.callback(nodeName, int32(node.data.status))
+		if node.data.Status == ServiceStatusPending {
+			err := service.callback(nodeName, node.data.Status)
 			sendNode := &gp.Node{Name: key, Status: TransferStatusSucc}
 			if err != nil {
 				sendNode.Status = TransferStatusFail
@@ -593,6 +593,7 @@ func (p *servicePool) removeNode(key string) {
 func (p *servicePool) updateNodeData(nodePath string, nodeData *nodeData) error {
 	servicePath := filepath.Dir(nodePath)
 	servicePath = strings.ReplaceAll(servicePath, `\`, `/`)
+
 	if p.namesProvided && !p.knownNames[servicePath] {
 		return nil
 	}

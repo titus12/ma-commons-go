@@ -17,7 +17,7 @@ const (
 	TransferStatusFail
 )
 
-var StatusServiceName = map[int8]string{
+var StatusServiceName = map[int32]string{
 	ServiceStatusNone:     "NONE",
 	ServiceStatusPending:  "PENDING",
 	ServiceStatusRunning:  "RUNNING",
@@ -26,8 +26,8 @@ var StatusServiceName = map[int8]string{
 
 // 节点数据
 type nodeData struct {
-	addr   string `json:"addr"`   //ip:port
-	status int8   `json:"status"` // 节点状态
+	Addr   string `json:"addr"`   //ip:port
+	Status int32  `json:"status"` // 节点状态
 }
 
 // 节点
