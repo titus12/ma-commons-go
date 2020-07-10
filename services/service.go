@@ -44,7 +44,7 @@ func newService(name string) *Service {
 // 是否完成，检查服务里所有节点是否正常牵移完数据
 func (s *Service) isCompleted(exclude string) int32 {
 	s.mu.RLock()
-	defer s.mu.Unlock()
+	defer s.mu.RUnlock()
 	for _, v := range s.nodes {
 		if v.key == exclude {
 			continue
@@ -95,7 +95,7 @@ func (s *Service) upsertNode(node *node) error {
 		if err != nil {
 			return err
 		}
-		if node.data.addr != s.nodes[idx].data.addr {
+		if node.data.Addr != s.nodes[idx].data.Addr {
 			s.nodes[idx].conn = node.conn
 		}
 		//node.transfer = s.nodes[idx].transfer
@@ -146,13 +146,13 @@ func (s *Service) updateNode(node *node) error {
 // 检查节点状态,拿老的节点与新的节点进行比较，判断节点在环上的情况，并根据不同情况
 // 作出对环的操作。（内部调用，都是在有锁的方法中调用，不用加锁）
 func (s *Service) checkStatus(oldNode *node, newNode *node) error {
-	var oldStatus int8 = ServiceStatusNone
+	var oldStatus int32 = ServiceStatusNone
 	if oldNode != nil {
-		oldStatus = oldNode.data.status
+		oldStatus = oldNode.data.Status
 	}
-	newStatus := newNode.data.status
+	newStatus := newNode.data.Status
 	if oldStatus == newStatus {
-		//return fmt.Errorf("checkStatus node %v status %v duplicated", newNode.key, StatusServiceName[newStatus])
+		//return fmt.Errorf("checkStatus node %v Status %v duplicated", newNode.key, StatusServiceName[newStatus])
 		return errStatusDuplicated
 	}
 
@@ -286,7 +286,7 @@ func (s *Service) IsLocalWithStableRing(id int64) (local bool, nodeKey string, n
 	if err != nil {
 		return false, "", -1, nil, err
 	}
-	return node.isLocal, node.key, int32(node.data.status), node.conn, nil
+	return node.isLocal, node.key, int32(node.data.Status), node.conn, nil
 }
 
 func (s *Service) IsLocalWithUnstableRing(id int64) (local bool, nodeKey string, nodeStatus int32, conn *grpc.ClientConn, err error) {
@@ -294,5 +294,5 @@ func (s *Service) IsLocalWithUnstableRing(id int64) (local bool, nodeKey string,
 	if err != nil {
 		return false, "", -1, nil, err
 	}
-	return node.isLocal, node.key, int32(node.data.status), node.conn, nil
+	return node.isLocal, node.key, int32(node.data.Status), node.conn, nil
 }

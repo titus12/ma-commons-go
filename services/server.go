@@ -47,8 +47,18 @@ func NewServerWrapper(listen string) (*serverWrapper, error) {
 }
 
 // 启动服务器
-func (s *serverWrapper) Start() error {
-	err := s.gServer.Serve(*s.listener)
-	log.Infof("开始监听服务")
-	return err
+func (s *serverWrapper) Start() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		wg.Done()
+		err := s.gServer.Serve(*s.listener)
+		if err != nil {
+			log.Panic("启动服务失败......")
+		}
+
+		log.Infof("开始监听服务")
+	}()
+	runtime.Gosched()
+	wg.Wait()
 }

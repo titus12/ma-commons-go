@@ -32,7 +32,7 @@ const (
 	eventOnFatal   = "OnFatal"
 )
 
-var errStatusDuplicated = errors.New("checkStatus node status duplicated")
+var errStatusDuplicated = errors.New("checkStatus node Status duplicated")
 
 // a kind of Service
 
@@ -333,16 +333,16 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	nodePath := joinPath(servicePath, p.selfNodeName)
 	node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, ServiceStatusPending}, true, TransferStatusSucc)
 	if err := service.addNode(node); err != nil {
-		log.Fatalf("startServer upsertNode %v %v err %v", node.key, StatusServiceName[node.data.status], err)
+		log.Fatalf("startServer upsertNode %v %v err %v", node.key, StatusServiceName[node.data.Status], err)
 	}
 
 	if err := p.updateNodeData(nodePath, &node.data); err != nil {
 		log.Fatalf("startServer updateNodeData %v %v err %v", nodePath, ServiceStatusPending, err)
 	}
 
-	//loop check to status ServiceStatusRunning
+	//loop check to Status ServiceStatusRunning
 	log.Infof("startServer start to check whether nodes are ready")
-	status := node.data.status
+	status := node.data.Status
 	for {
 		transfer := service.isCompleted(p.selfNodeName)
 		switch transfer {
@@ -391,13 +391,13 @@ func (p *servicePool) stopNode(nodePath string, node *node) error {
 
 	for {
 		if err := p.updateNodeData(nodePath, &node.data); err != nil {
-			log.Error("startServer updateNodeData %v %v err %v", nodePath, StatusServiceName[node.data.status], err)
+			log.Error("startServer updateNodeData %v %v err %v", nodePath, StatusServiceName[node.data.Status], err)
 		} else {
 			break
 		}
 	}
 
-	err := service.callback(node.key, int32(node.data.status))
+	err := service.callback(node.key, node.data.Status)
 	if err != nil {
 		log.Errorf("stopNode callback %v err %v", node.key, err)
 	}
@@ -477,12 +477,19 @@ func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 	}
 
 	for _, ev := range resp.Kvs {
+
+		// todo: 下面这里要多注意，检查一下其他地方是否有类似的，这里主要是跳过作为目录的key
+		// todo： 比如这里servicePath本身是是一个目录，这类型key不能解析，否则会出错。
+		keystr := utils.BytesToString(ev.Key)
+		if keystr == servicePath {
+			continue
+		}
 		info := &nodeData{}
 		err := json.Unmarshal(ev.Value, info)
 		if err != nil {
 			return fmt.Errorf("initNodesOfService nodeData Parse value:%v, err:%v", string(ev.Key), err)
 		}
-		if info.status == ServiceStatusNone {
+		if info.Status == ServiceStatusNone {
 			continue
 		}
 		w.addJob(ev)
@@ -504,7 +511,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 		log.Errorf("upsertNode nodeData Parse value:%v, err:%v", value, err)
 		return false
 	}
-	if info.status == ServiceStatusNone {
+	if info.Status == ServiceStatusNone {
 		return true
 	}
 	nodeName := getFileName(key)
@@ -523,7 +530,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 		log.Infof("upsertNode local %v - %v", key, value)
 	} else {
 		ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
-		conn, err := grpc.DialContext(ctx, info.addr, grpc.WithBlock())
+		conn, err := grpc.DialContext(ctx, info.Addr, grpc.WithBlock())
 		cancel()
 		if err != nil {
 			log.Errorf("upsertNode Service connect %v - %v, Error: %v", key, value, err)
@@ -536,8 +543,8 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 			return false
 		}
 		log.Infof("upsertNode remote %v - %v", key, value)
-		if node.data.status == ServiceStatusPending {
-			err := service.callback(nodeName, int32(node.data.status))
+		if node.data.Status == ServiceStatusPending {
+			err := service.callback(nodeName, node.data.Status)
 			sendNode := &gp.Node{Name: key, Status: TransferStatusSucc}
 			if err != nil {
 				sendNode.Status = TransferStatusFail
@@ -592,6 +599,8 @@ func (p *servicePool) removeNode(key string) {
 // 向etcd更新节点数据
 func (p *servicePool) updateNodeData(nodePath string, nodeData *nodeData) error {
 	servicePath := filepath.Dir(nodePath)
+	servicePath = strings.ReplaceAll(servicePath, `\`, `/`)
+
 	if p.namesProvided && !p.knownNames[servicePath] {
 		return nil
 	}
