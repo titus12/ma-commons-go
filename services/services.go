@@ -330,7 +330,7 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 
 	sw.Start()
 
-	nodePath := joinPath(service.name, p.selfNodeName)
+	nodePath := joinPath(servicePath, p.selfNodeName)
 	node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, ServiceStatusPending}, true, TransferStatusSucc)
 	if err := service.addNode(node); err != nil {
 		log.Fatalf("startServer upsertNode %v %v err %v", node.key, StatusServiceName[node.data.status], err)
