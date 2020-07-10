@@ -422,12 +422,11 @@ func (p *servicePool) transfer(key string, status int32) error {
 }
 
 // 监控etcd，监控一个服务的事件发生
-func (p *servicePool) watcher(serviceName string) error {
+func (p *servicePool) watcher(servicePath string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	events := make(chan *etcdclient.Event, 256)
 	defer close(events)
-	servicePath := joinPath(p.root, strings.TrimSpace(serviceName))
 	wc := p.client.Watch(ctx, servicePath, etcdclient.WithPrefix())
 	if wc == nil {
 		return fmt.Errorf("watcher no channel %v", servicePath)
