@@ -592,6 +592,7 @@ func (p *servicePool) removeNode(key string) {
 // 向etcd更新节点数据
 func (p *servicePool) updateNodeData(nodePath string, nodeData *nodeData) error {
 	servicePath := filepath.Dir(nodePath)
+	servicePath = strings.ReplaceAll(servicePath, `\`, `/`)
 	if p.namesProvided && !p.knownNames[servicePath] {
 		return nil
 	}
