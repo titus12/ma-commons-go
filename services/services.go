@@ -78,6 +78,7 @@ func getFileName(path string) string {
 }
 
 func (p *retryManager) addRetry(key string) {
+	log.Infof("添加重试... %s", key)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.retries[key] = DefaultRetries
@@ -85,6 +86,7 @@ func (p *retryManager) addRetry(key string) {
 }
 
 func (p *retryManager) delRetry(key string) {
+	log.Infof("删除重试... %s", key)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	_, ok := p.retries[key]
@@ -110,6 +112,7 @@ func (p *retryManager) cycleCheck() {
 		}
 
 		if p.retries[key] == 0 {
+			log.Infof("cycleCheck重试...%s....del", key)
 			delete(p.retries, key)
 			log.Debugf("Delete retry connect on %v", key)
 		}
@@ -432,6 +435,11 @@ func (p *servicePool) watcher(servicePath string) error {
 			func() {
 				defer utils.PrintPanicStack()
 				key := string(v.Kv.Key)
+
+				//nodes, _ := p.getServices("/root/backend/gameser")
+				//log.Infof("收到事件 %s, %s|本地：%v", v.Kv.Key, v.Kv.Value, nodes[0])
+				log.Infof("收到事件 %s, %s", v.Kv.Key, v.Kv.Value)
+
 				if ok := p.upsertNode(key, v.Kv.Value); !ok {
 					addRetry(key)
 				}
@@ -473,10 +481,8 @@ func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 	}
 
 	for _, ev := range resp.Kvs {
-		// todo: 下面这里要多注意，检查一下其他地方是否有类似的，这里主要是跳过作为目录的key
-		// todo： 比如这里servicePath本身是是一个目录，这类型key不能解析，否则会出错。
-		keyStr := utils.BytesToString(ev.Key)
-		if keyStr == servicePath {
+		keystr := util.BytesToString(ev.Key)
+		if keystr == servicePath {
 			continue
 		}
 		info := &nodeData{}
@@ -684,6 +690,7 @@ func (p *servicePool) registerCallback(path string, callback func(key string, st
 }
 
 func (p *servicePool) retryConn(key string) (del bool) {
+	log.Infof("开始执行重试...%s", key)
 	kAPI := etcdclient.NewKV(p.client)
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	resp, err := kAPI.Get(ctx, key)
@@ -694,6 +701,7 @@ func (p *servicePool) retryConn(key string) (del bool) {
 		return
 	}
 	del = p.upsertNode(key, resp.Kvs[0].Value)
+	log.Infof("重试执行完毕...%s, %t", key, del)
 	return
 }
 

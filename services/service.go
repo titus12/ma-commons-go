@@ -200,7 +200,7 @@ func (s *Service) delNode(key string) {
 // 获取节点
 func (s *Service) getNode(id string) (node, error) {
 	s.mu.RLock()
-	defer s.mu.Unlock()
+	defer s.mu.RUnlock()
 	for k := range s.nodes {
 		if s.nodes[k].key == id {
 			return *s.nodes[k], nil
@@ -211,7 +211,7 @@ func (s *Service) getNode(id string) (node, error) {
 
 func (s *Service) getNodeWithRoundRobin() (node, error) {
 	s.mu.RLock()
-	defer s.mu.Unlock()
+	defer s.mu.RUnlock()
 	count := len(s.nodes)
 	if count == 0 {
 		return node{}, ErrNoNodes
@@ -222,7 +222,7 @@ func (s *Service) getNodeWithRoundRobin() (node, error) {
 
 func (s *Service) getNodeWithHash(hash int) (node, error) {
 	s.mu.RLock()
-	defer s.mu.Unlock()
+	defer s.mu.RUnlock()
 	count := len(s.nodes)
 	if count == 0 {
 		return node{}, ErrNoNodes
@@ -235,7 +235,7 @@ func (s *Service) getNodeWithHash(hash int) (node, error) {
 // 这份数据进行逻缉操作时是不影响原环上的节点
 func (s *Service) getNodeWithConsistentHash(id string, isStable bool) (node, error) {
 	s.mu.RLock()
-	defer s.mu.Unlock()
+	defer s.mu.RUnlock()
 	count := len(s.nodes)
 	if count == 0 {
 		return node{}, ErrNoNodes
@@ -261,7 +261,7 @@ func (s *Service) getNodeWithConsistentHash(id string, isStable bool) (node, err
 
 func (s *Service) getNodes() []node {
 	s.mu.RLock()
-	defer s.mu.Unlock()
+	defer s.mu.RUnlock()
 	nodes := make([]node, 0, len(s.nodes))
 	for _, v := range s.nodes {
 		nodes = append(nodes, *v)
