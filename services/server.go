@@ -14,12 +14,16 @@ import (
 	"github.com/titus12/ma-commons-go/utils"
 )
 
+const defaultTcpDialTimeOut = 2 * time.Second
+
 type server struct{}
 
 type serverWrapper struct {
 	listener *net.Listener
 	gServer  *grpc.Server
 	wg       sync.WaitGroup
+
+	address string
 }
 
 // 接收牵移状态通知的，告知某节点数据牵移完成
@@ -35,11 +39,13 @@ func (s *server) Notify(cxt context.Context, node *gp.Node) (*gp.Result, error) 
 
 func NewServerWrapper(listen string) (*serverWrapper, error) {
 	serverWrapper := &serverWrapper{}
+	serverWrapper.address = listen
 	// 监听
 	lis, err := net.Listen("tcp", listen)
 	if err != nil {
 		return nil, err
 	}
+
 	log.Info("listening on ", lis.Addr())
 	//注册服务
 	s := grpc.NewServer(grpc.MaxConcurrentStreams(math.MaxInt32))
@@ -73,4 +79,15 @@ func (s *serverWrapper) Done() {
 
 func (s *serverWrapper) Wait() {
 	s.wg.Wait()
+}
+
+// 检查节点表示的网络是否畅通
+func (s *serverWrapper) checkNet() bool {
+	conn, err := net.DialTimeout("tcp", s.address, defaultTcpDialTimeOut)
+	if err != nil {
+		logrus.WithError(err).Errorf("探测连接失败...%s", s.address)
+		return false
+	}
+	defer conn.Close()
+	return true
 }
