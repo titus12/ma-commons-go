@@ -7,6 +7,7 @@ import (
 	"github.com/coreos/etcd/clientv3/concurrency"
 	"github.com/coreos/etcd/mvcc/mvccpb"
 	log "github.com/sirupsen/logrus"
+	"github.com/titus12/ma-commons-go/utils/ctxfunc"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"os"
@@ -21,8 +22,9 @@ import (
 )
 
 const (
-	DefaultTimeout = 10 * time.Second
-	DefaultRetries = 1440 // failed connection retries (for every ten seconds)
+	DefaultTimeout  = 10 * time.Second
+	DefaultRetries  = 1440 // failed connection retries (for every ten seconds)
+	DefaultLeaseTTL = 5
 )
 
 const (
@@ -158,28 +160,28 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 	p.selfNodeAddr = selfNodeAddr
 
 	// 初始化时，自已节点的key不应该在etcd中的存在.....否则会引起状态不对
-	nodePath := fmt.Sprintf("%s/%s/%s", p.root, p.selfServiceName, p.selfNodeName)
-	var gresp *etcdclient.GetResponse
-	ctxfunc.Timeout(DefaultLeaseTtl*time.Second, func(ctx context.Context) {
-		gresp, err = p.client.Get(ctx, nodePath)
+	nodePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName), strings.TrimSpace(p.selfNodeName))
+	var gResp *etcdclient.GetResponse
+	ctxfunc.Timeout(DefaultLeaseTTL*time.Second, func(ctx context.Context) {
+		gResp, err = p.client.Get(ctx, nodePath)
 	})
 	if err != nil {
-		log.WithError(err).Fatalf("servicePool.init|Etcd access failed, nodePath: %s", nodePath)
+		log.Fatalf("servicePool.init etcd access failed, nodePath: %s", nodePath)
 	}
-	if len(gresp.Kvs) > 0 {
-		log.Fatalf("servicePool.init|The self node exists in the ETCD, nodePath: %s", nodePath)
+	if len(gResp.Kvs) > 0 {
+		log.Fatalf("servicePool.init the self node exists in the etcd, nodePath: %s", nodePath)
 	}
 	// 建立本节点的租约
-	ctxfunc.Timeout(DefaultLeaseTtl*time.Second, func(ctx context.Context) {
-		p.lease, err = p.client.Grant(ctx, DefaultLeaseTtl)
+	ctxfunc.Timeout(DefaultLeaseTTL*time.Second, func(ctx context.Context) {
+		p.lease, err = p.client.Grant(ctx, DefaultLeaseTTL)
 	})
 	if err != nil {
-		log.WithError(err).Fatalf("servicePool.init|The lease grant failed on the ETCD, nodePath: %s", nodePath)
+		log.Fatalf("servicePool.init The lease grant failed on the etcd, nodePath: %s", nodePath)
 	}
 
 	leaseRespChan, err := p.client.KeepAlive(context.TODO(), p.lease.ID)
 	if err != nil {
-		log.WithError(err).Fatalf("servicePool.init|call etcd.KeepAlive fail, nodePath: %s", nodePath)
+		log.Fatalf("servicePool.init call etcd.KeepAlive fail, nodePath: %s", nodePath)
 	}
 
 	// 租约监控方法
@@ -188,29 +190,25 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 			select {
 			case leaseKeepResp := <-leaseRespChan:
 				if leaseKeepResp == nil {
-					log.Fatalf("leaseListenFn| Lease continue fail")
+					log.Errorf("leaseListenFn Lease continue fail")
+					return
 				} else {
 					// 说明网络已经启动
 					if p.checkNetFn != nil {
 						// 检查失败
 						if !p.checkNetFn() {
-							log.Fatalf("leaseListenFn| check net fail....exit node")
+							log.Errorf("leaseListenFn check net fail....exit node")
+							return
 						}
 					}
-					if log.IsLevelEnabled(log.DebugLevel) {
-						log.Debugf("leaseListenFn| Lease continue succeed")
-					}
-					goto END
+					log.Debugf("leaseListenFn Lease continue succeed")
 				}
 			}
-		END:
-			// todo: 是否要拉长？？？？？， 租约的监控时间是租约时间的一半，也就是2秒的时间，1秒就会收到通知，但这里人为的又设置了4秒
-			time.Sleep(DefaultLeaseTtl * 2 * time.Second)
+			time.Sleep((DefaultLeaseTTL >> 1) * time.Second)
 		}
 	}
 
 	go leaseListenFn()
-
 	// init
 	p.services = make(map[string]*Service)
 	p.knownNames = make(map[string]bool)
@@ -224,6 +222,20 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 		servicePath := joinPath(p.root, strings.TrimSpace(v))
 		p.knownNames[servicePath] = true
 		p.services[servicePath] = newService(v)
+	}
+
+	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
+	if p.services[servicePath] == nil {
+		nodePath := joinPath(servicePath, p.selfNodeName)
+		go func() {
+			err := p.watcher(nodePath)
+			if err != nil {
+				log.Fatalf("startClient watcher err %v", err)
+			}
+		}()
+		if err := p.updateNodeData(nodePath, &nodeData{p.selfNodeAddr, ServiceStatusRunning}); err != nil {
+			log.Fatalf("startClient updateNodeData %v %v err %v", nodePath, ServiceStatusRunning, err)
+		}
 	}
 }
 
@@ -309,21 +321,7 @@ func (p *servicePool) makeWork(queueSize int) (*work, func()) {
 func (p *servicePool) startClient(ctx context.Context) error {
 	w, cancel := p.makeWork(1024)
 	defer cancel()
-	defer func() {
-		servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
-		if p.services[servicePath] == nil {
-			nodePath := joinPath(servicePath, p.selfNodeName)
-			go func() {
-				err := p.watcher(nodePath)
-				if err != nil {
-					log.Fatalf("startClient watcher err %v", err)
-				}
-			}()
-			if err := p.updateNodeData(nodePath, &nodeData{p.selfNodeAddr, ServiceStatusRunning}); err != nil {
-				log.Fatalf("startClient updateNodeData %v %v err %v", nodePath, ServiceStatusRunning, err)
-			}
-		}
-	}()
+
 	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
 	for k, _ := range p.services {
 		if k == servicePath {
@@ -392,7 +390,7 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	sw.Start()
 
 	// 间隔一定时间，把网络检查的方法赋出来，这样在租约监控的地方就能进行网络检查了。
-	time.Sleep(DefaultLeaseTtl)
+	time.Sleep(DefaultLeaseTTL * time.Second)
 	p.checkNetFn = sw.checkNet
 
 	nodePath := joinPath(servicePath, p.selfNodeName)
@@ -552,8 +550,8 @@ func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 	}
 
 	for _, ev := range resp.Kvs {
-		keystr := utils.BytesToString(ev.Key)
-		if keystr == servicePath {
+		keyStr := utils.BytesToString(ev.Key)
+		if keyStr == servicePath {
 			continue
 		}
 		info := &nodeData{}

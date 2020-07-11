@@ -73,7 +73,6 @@ func (serverHandler *serverHandler) ConnectionActive(conn net.Conn) {
 	sess.Die = make(chan struct{})
 
 	// create a write buffer
-	// todo: 这里实际是启动一个 goroutine 进行写操作，命名成 Buffer ,名称有岐义
 	out := NewBuffer(conn, sess.Die, serverHandler.config.Txqueuelen)
 	go out.start()
 
@@ -88,7 +87,7 @@ func (serverHandler *serverHandler) ConnectionActive(conn net.Conn) {
 	// read loop
 	for {
 		// solve dead link problem:
-		// physical disconnection without any communcation between client and server
+		// physical disconnection without any communication between client and server
 		// will cause the read to block FOREVER, so a timeout is a rescue.
 		conn.SetReadDeadline(time.Now().Add(serverHandler.config.ReadDeadline))
 
@@ -104,7 +103,6 @@ func (serverHandler *serverHandler) ConnectionActive(conn net.Conn) {
 		payload := make([]byte, size)
 		n, err = io.ReadFull(conn, payload)
 		if err != nil {
-			// todo: 错误后没有后续的处理了? 前面的 go程已经开启了？ 直接退出估计会有问题，go程会有泄露
 			log.Warningf("read payload failed, ip:%v reason:%v size:%v", sess.IP, err, n)
 			return
 		}
