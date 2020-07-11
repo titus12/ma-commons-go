@@ -369,6 +369,7 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	}
 StartServerDone:
 	log.Infof("node %v startup completed", p.selfNodeName)
+	sw.Wait()
 }
 
 // 停止一个节点

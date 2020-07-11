@@ -6,7 +6,6 @@ import (
 	"google.golang.org/grpc"
 	"math"
 	"net"
-	"runtime"
 	"sync"
 )
 
@@ -20,6 +19,7 @@ type server struct{}
 type serverWrapper struct {
 	listener *net.Listener
 	gServer  *grpc.Server
+	wg       sync.WaitGroup
 }
 
 // 接收牵移状态通知的，告知某节点数据牵移完成
@@ -52,17 +52,25 @@ func NewServerWrapper(listen string) (*serverWrapper, error) {
 
 // 启动服务器
 func (s *serverWrapper) Start() {
-	var wg sync.WaitGroup
-	wg.Add(1)
+	s.wg.Add(1)
+	ch := make(chan struct{})
+	defer close(ch)
 	go func() {
-		wg.Done()
+		<-ch
 		err := s.gServer.Serve(*s.listener)
 		if err != nil {
 			log.Panic("启动服务失败......")
 		}
-
 		log.Infof("开始监听服务")
 	}()
-	runtime.Gosched()
-	wg.Wait()
+	ch <- struct{}{}
+	//runtime.Gosched()
+}
+
+func (s *serverWrapper) Done() {
+	s.wg.Done()
+}
+
+func (s *serverWrapper) Wait() {
+	s.wg.Wait()
 }
