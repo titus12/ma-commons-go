@@ -78,21 +78,21 @@ func getFileName(path string) string {
 }
 
 func (p *retryManager) addRetry(key string) {
-	log.Infof("添加重试... %s", key)
+	log.Infof("addRetry add retry... %s", key)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.retries[key] = DefaultRetries
-	log.Debugf("Add connect retry:%v", key)
+	log.Debugf("addRetry add connect retry:%v", key)
 }
 
 func (p *retryManager) delRetry(key string) {
-	log.Infof("删除重试... %s", key)
+	log.Infof("delRetry del retry... %s", key)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	_, ok := p.retries[key]
 	if ok {
 		delete(p.retries, key)
-		log.Debugf("Del connect retry:%v", key)
+		log.Debugf("delRetry del connect retry:%v", key)
 	}
 }
 
@@ -102,19 +102,19 @@ func (p *retryManager) cycleCheck() {
 	defer utils.PrintPanicStack()
 	for key, value := range p.retries {
 		if value > 0 {
-			log.Debugf("Trying connecting:%v ......", key)
+			log.Debugf("trying connecting:%v ......", key)
 			if del := retryConn(key); del == true {
 				p.retries[key] = 0
-				log.Infof("Retry connecting on %v successfully !", key)
+				log.Infof("retry connecting on %v successfully !", key)
 			} else {
 				p.retries[key]--
 			}
 		}
 
 		if p.retries[key] == 0 {
-			log.Infof("cycleCheck重试...%s....del", key)
+			log.Infof("cycleCheck retry...%s....del", key)
 			delete(p.retries, key)
-			log.Debugf("Delete retry connect on %v", key)
+			log.Debugf("delete retry connect on %v", key)
 		}
 	}
 }
@@ -146,7 +146,7 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 	p.client = c
 	p.root = "/root" + root
 
-	//todo: 下面三个是准备都是全名称，还是简称
+	//简称
 	p.selfServiceName = selfServiceName
 	p.selfNodeName = selfNodeName
 	p.selfNodeAddr = selfNodeAddr
@@ -295,7 +295,7 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
 	mtx, err := p.newMutex(p.selfServiceName)
 	if err != nil {
-		log.Fatalf("lock Service err %v", err)
+		log.Fatalf("startServer lock Service err %v", err)
 	}
 	mtx.Lock(context.TODO())
 	defer mtx.Unlock(context.TODO())
@@ -324,7 +324,7 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	}
 	//startup func
 	if err := startup(sw.gServer, service); err != nil {
-		log.Fatalf("startup func err %v", err)
+		log.Fatalf("startServer startup func err %v", err)
 	}
 
 	sw.Start()
@@ -371,7 +371,7 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 		time.Sleep(100)
 	}
 StartServerDone:
-	log.Infof("node %v startup completed", p.selfNodeName)
+	log.Infof("startServer node %v startup completed", p.selfNodeName)
 	sw.Wait()
 }
 
@@ -439,7 +439,7 @@ func (p *servicePool) watcher(servicePath string) error {
 
 				//nodes, _ := p.getServices("/root/backend/gameser")
 				//log.Infof("收到事件 %s, %s|本地：%v", v.Kv.Key, v.Kv.Value, nodes[0])
-				log.Infof("收到事件 %s, %s", v.Kv.Key, v.Kv.Value)
+				log.Infof("watcher receive event %s, %s", v.Kv.Key, v.Kv.Value)
 
 				if ok := p.upsertNode(key, v.Kv.Value); !ok {
 					addRetry(key)
@@ -482,7 +482,7 @@ func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 	}
 
 	for _, ev := range resp.Kvs {
-		keystr := util.BytesToString(ev.Key)
+		keystr := utils.BytesToString(ev.Key)
 		if keystr == servicePath {
 			continue
 		}
@@ -595,7 +595,7 @@ func (p *servicePool) removeNode(key string) {
 	}
 }
 
-// 向etcd更新节点数据
+// etcd更新节点数据
 func (p *servicePool) updateNodeData(nodePath string, nodeData *nodeData) error {
 	servicePath := filepath.Dir(nodePath)
 	servicePath = strings.ReplaceAll(servicePath, `\`, `/`)
@@ -691,7 +691,7 @@ func (p *servicePool) registerCallback(path string, callback func(key string, st
 }
 
 func (p *servicePool) retryConn(key string) (del bool) {
-	log.Infof("开始执行重试...%s", key)
+	log.Infof("retryConn start retry...%s", key)
 	kAPI := etcdclient.NewKV(p.client)
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	resp, err := kAPI.Get(ctx, key)
@@ -702,7 +702,7 @@ func (p *servicePool) retryConn(key string) (del bool) {
 		return
 	}
 	del = p.upsertNode(key, resp.Kvs[0].Value)
-	log.Infof("重试执行完毕...%s, %t", key, del)
+	log.Infof("retryConn retry done...%s, %t", key, del)
 	return
 }
 

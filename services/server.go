@@ -59,9 +59,9 @@ func (s *serverWrapper) Start() {
 		<-ch
 		err := s.gServer.Serve(*s.listener)
 		if err != nil {
-			log.Panic("启动服务失败......")
+			log.Fatalf("start tcp server err %v", err)
 		}
-		log.Infof("开始监听服务")
+		log.Infof("start tcp server listen")
 	}()
 	ch <- struct{}{}
 	//runtime.Gosched()

@@ -111,7 +111,7 @@ func (s *Service) addNode(node *node) error {
 	defer s.mu.Unlock()
 	for _, v := range s.nodes {
 		if v.key == node.key {
-			return fmt.Errorf("upsertNode node %v already exist", node.key)
+			return fmt.Errorf("addNode node %v already exist", node.key)
 		}
 	}
 	err := s.checkStatus(nil, node)
@@ -191,7 +191,7 @@ func (s *Service) delNode(key string) {
 			s.unstableConsistent.Remove(key)
 			s.nodes = append(s.nodes[:k], s.nodes[k+1:]...)
 			v.conn.Close()
-			log.Infof("Service removed: %v", key)
+			log.Infof("delNode service removed: %v", key)
 			return
 		}
 	}
@@ -206,7 +206,7 @@ func (s *Service) getNode(id string) (node, error) {
 			return *s.nodes[k], nil
 		}
 	}
-	return node{}, fmt.Errorf("node %v id %v is not exist", s.name, id)
+	return node{}, fmt.Errorf("getNode node %v id %v is not exist", s.name, id)
 }
 
 func (s *Service) getNodeWithRoundRobin() (node, error) {
