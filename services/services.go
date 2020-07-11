@@ -22,9 +22,10 @@ import (
 )
 
 const (
-	DefaultTimeout  = 10 * time.Second
-	DefaultRetries  = 1440 // failed connection retries (for every ten seconds)
-	DefaultLeaseTTL = 5
+	DefaultTimeout    = 10 * time.Second
+	DefaultRetries    = 1440 // failed connection retries (for every ten seconds)
+	DefaultLeaseTTL   = 5
+	DefaultNetRetries = 5
 )
 
 const (
@@ -183,7 +184,7 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 	if err != nil {
 		log.Fatalf("servicePool.init call etcd.KeepAlive fail, nodePath: %s err %v", nodePath, err)
 	}
-
+	retryNum := DefaultNetRetries
 	// 租约监控方法
 	leaseListenFn := func() {
 		for {
@@ -197,9 +198,13 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 				// 检查失败
 				if p.checkNetFn != nil && !p.checkNetFn() {
 					//报警
-					p.eventOnDestroy(selfNodeName)
 					log.Errorf("leaseListenFn check net fail,exit node %s", nodePath)
+					if retryNum--; retryNum <= 0 {
+						p.eventOnDestroy(selfNodeName)
+					}
 					return
+				} else {
+					retryNum = DefaultNetRetries
 				}
 				log.Debugf("leaseListenFn Lease continue succeed")
 			}
