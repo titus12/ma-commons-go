@@ -3,12 +3,13 @@ package services
 import (
 	"errors"
 	"fmt"
-	"sync"
-	"sync/atomic"
-
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"sync"
+	"sync/atomic"
+)
 
+import (
 	cons "github.com/titus12/ma-commons-go/utils"
 )
 
@@ -152,8 +153,7 @@ func (s *Service) checkStatus(oldNode *node, newNode *node) error {
 	}
 	newStatus := newNode.data.Status
 	if oldStatus == newStatus {
-		//return fmt.Errorf("checkStatus node %v Status %v duplicated", newNode.key, StatusServiceName[newStatus])
-		return errStatusDuplicated
+		return fmt.Errorf("checkStatus node %v Status %v duplicated", newNode.key, StatusServiceName[newStatus])
 	}
 
 	switch newStatus {

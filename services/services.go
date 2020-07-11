@@ -2,24 +2,22 @@ package services
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	_ "fmt"
+	etcdclient "github.com/coreos/etcd/clientv3"
+	"github.com/coreos/etcd/clientv3/concurrency"
+	"github.com/coreos/etcd/mvcc/mvccpb"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/context"
+	"google.golang.org/grpc"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/coreos/etcd/clientv3/concurrency"
-	"github.com/coreos/etcd/mvcc/mvccpb"
-	"github.com/titus12/ma-commons-go/utils"
-
-	etcdclient "github.com/coreos/etcd/clientv3"
-	log "github.com/sirupsen/logrus"
+)
+import (
 	gp "github.com/titus12/ma-commons-go/services/pb-grpc"
-	"golang.org/x/net/context"
-	"google.golang.org/grpc"
+	"github.com/titus12/ma-commons-go/utils"
 )
 
 const (
@@ -31,8 +29,6 @@ const (
 	eventOnDestroy = "OnDestroy"
 	eventOnFatal   = "OnFatal"
 )
-
-var errStatusDuplicated = errors.New("checkStatus node Status duplicated")
 
 // a kind of Service
 
@@ -477,11 +473,10 @@ func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 	}
 
 	for _, ev := range resp.Kvs {
-
 		// todo: 下面这里要多注意，检查一下其他地方是否有类似的，这里主要是跳过作为目录的key
 		// todo： 比如这里servicePath本身是是一个目录，这类型key不能解析，否则会出错。
-		keystr := utils.BytesToString(ev.Key)
-		if keystr == servicePath {
+		keyStr := utils.BytesToString(ev.Key)
+		if keyStr == servicePath {
 			continue
 		}
 		info := &nodeData{}
@@ -520,12 +515,9 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 	if nodeName == p.selfNodeName {
 		node := NewNode(nodeName, nil, *info, true, TransferStatusSucc)
 		err = service.upsertNode(node)
-		if err == errStatusDuplicated {
-			return true
-		}
 		if err != nil {
 			log.Errorf("upsertNode local %v - %v err %v", key, value, err)
-			return false
+			return true
 		}
 		log.Infof("upsertNode local %v - %v", key, value)
 	} else {
@@ -641,7 +633,7 @@ func (p *servicePool) getServiceWithId(servicePath string, id string) (node, err
 	// check existence
 	service := p.services[servicePath]
 	if service == nil {
-		return node{}, fmt.Errorf("Service %v is nil", servicePath)
+		return node{}, fmt.Errorf("service %v is nil", servicePath)
 	}
 	return service.getNode(id)
 }
@@ -652,7 +644,7 @@ func (p *servicePool) getServiceWithRoundRobin(servicePath string) (node, error)
 	// check existence
 	service := p.services[servicePath]
 	if service == nil {
-		return node{}, fmt.Errorf("Service %v is nil", servicePath)
+		return node{}, fmt.Errorf("service %v is nil", servicePath)
 	}
 	// get a Service in round-robind style
 	return service.getNodeWithRoundRobin()
@@ -661,7 +653,7 @@ func (p *servicePool) getServiceWithRoundRobin(servicePath string) (node, error)
 func (p *servicePool) getServiceWithHash(servicePath string, hash int) (node, error) {
 	service := p.services[servicePath]
 	if service == nil {
-		return node{}, fmt.Errorf("Service %v is nil", servicePath)
+		return node{}, fmt.Errorf("service %v is nil", servicePath)
 	}
 	return service.getNodeWithHash(hash)
 }
@@ -669,7 +661,7 @@ func (p *servicePool) getServiceWithHash(servicePath string, hash int) (node, er
 func (p *servicePool) getServiceWithConsistentHash(servicePath string, key string) (node, error) {
 	service := p.services[servicePath]
 	if service == nil {
-		return node{}, fmt.Errorf("Service %v is nil", servicePath)
+		return node{}, fmt.Errorf("service %v is nil", servicePath)
 	}
 	return service.getNodeWithConsistentHash(key, true)
 }
@@ -677,7 +669,7 @@ func (p *servicePool) getServiceWithConsistentHash(servicePath string, key strin
 func (p *servicePool) getServices(servicePath string) ([]node, error) {
 	service := p.services[servicePath]
 	if service == nil {
-		return nil, fmt.Errorf("Service %v is nil", servicePath)
+		return nil, fmt.Errorf("service %v is nil", servicePath)
 	}
 	return service.getNodes(), nil
 }
@@ -776,8 +768,8 @@ func GetService(serviceName string) *Service {
 	return _defaultPool.services[serviceName]
 }
 
-func GetServiceWithConsistentHash(servieName string, key string) (bool, nodeData, *grpc.ClientConn, error) {
-	node, err := _defaultPool.getServiceWithConsistentHash(joinPath(_defaultPool.root, servieName), key)
+func GetServiceWithConsistentHash(serviceName string, key string) (bool, nodeData, *grpc.ClientConn, error) {
+	node, err := _defaultPool.getServiceWithConsistentHash(joinPath(_defaultPool.root, serviceName), key)
 	if err != nil {
 		return false, nodeData{}, nil, err
 	}
