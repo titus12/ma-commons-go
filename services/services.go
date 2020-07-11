@@ -166,22 +166,22 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 		gResp, err = p.client.Get(ctx, nodePath)
 	})
 	if err != nil {
-		log.Fatalf("servicePool.init etcd access failed, nodePath: %s", nodePath)
+		log.Fatalf("servicePool.init etcd access failed, nodePath %s err %v", nodePath, err)
 	}
 	if len(gResp.Kvs) > 0 {
-		log.Fatalf("servicePool.init the self node exists in the etcd, nodePath: %s", nodePath)
+		log.Fatalf("servicePool.init the self node exists in the etcd, nodePath %s", nodePath, err)
 	}
 	// 建立本节点的租约
 	ctxfunc.Timeout(DefaultLeaseTTL*time.Second, func(ctx context.Context) {
 		p.lease, err = p.client.Grant(ctx, DefaultLeaseTTL)
 	})
 	if err != nil {
-		log.Fatalf("servicePool.init The lease grant failed on the etcd, nodePath: %s", nodePath)
+		log.Fatalf("servicePool.init The lease grant failed on the etcd, nodePath %s err %v", nodePath, err)
 	}
 
 	leaseRespChan, err := p.client.KeepAlive(context.TODO(), p.lease.ID)
 	if err != nil {
-		log.Fatalf("servicePool.init call etcd.KeepAlive fail, nodePath: %s", nodePath)
+		log.Fatalf("servicePool.init call etcd.KeepAlive fail, nodePath: %s err %v", nodePath, err)
 	}
 
 	// 租约监控方法
@@ -192,17 +192,16 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 				if leaseKeepResp == nil {
 					log.Errorf("leaseListenFn Lease continue fail")
 					return
-				} else {
-					// 说明网络已经启动
-					if p.checkNetFn != nil {
-						// 检查失败
-						if !p.checkNetFn() {
-							log.Errorf("leaseListenFn check net fail....exit node")
-							return
-						}
-					}
-					log.Debugf("leaseListenFn Lease continue succeed")
 				}
+				// 说明网络已经启动
+				// 检查失败
+				if p.checkNetFn != nil && !p.checkNetFn() {
+					//报警
+					p.eventOnDestroy(selfNodeName)
+					log.Errorf("leaseListenFn check net fail,exit node %s", nodePath)
+					return
+				}
+				log.Debugf("leaseListenFn Lease continue succeed")
 			}
 			time.Sleep((DefaultLeaseTTL >> 1) * time.Second)
 		}
@@ -217,7 +216,7 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 		p.namesProvided = true
 	}
 
-	log.Infof("servicePool.init|all Service serviceNames:%v", serviceNames)
+	log.Infof("servicePool.init all Service serviceNames:%v", serviceNames)
 	for _, v := range serviceNames {
 		servicePath := joinPath(p.root, strings.TrimSpace(v))
 		p.knownNames[servicePath] = true
