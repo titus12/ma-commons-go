@@ -129,7 +129,13 @@ type servicePool struct {
 	knownNames      map[string]bool // Service provided
 	namesProvided   bool
 	client          *etcdclient.Client
-	event           sync.Map // Service event notify
+
+	// 租约
+	lease *etcdclient.LeaseGrantResponse
+	event sync.Map // Service event notify
+
+	// 检查网格的方法
+	checkNetFn func() bool
 }
 
 func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfServiceName, selfNodeName, selfNodeAddr string) {
@@ -150,6 +156,61 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 	p.selfServiceName = selfServiceName
 	p.selfNodeName = selfNodeName
 	p.selfNodeAddr = selfNodeAddr
+
+	// 初始化时，自已节点的key不应该在etcd中的存在.....否则会引起状态不对
+	nodePath := fmt.Sprintf("%s/%s/%s", p.root, p.selfServiceName, p.selfNodeName)
+	var gresp *etcdclient.GetResponse
+	ctxfunc.Timeout(DefaultLeaseTtl*time.Second, func(ctx context.Context) {
+		gresp, err = p.client.Get(ctx, nodePath)
+	})
+	if err != nil {
+		log.WithError(err).Fatalf("servicePool.init|Etcd access failed, nodePath: %s", nodePath)
+	}
+	if len(gresp.Kvs) > 0 {
+		log.Fatalf("servicePool.init|The self node exists in the ETCD, nodePath: %s", nodePath)
+	}
+	// 建立本节点的租约
+	ctxfunc.Timeout(DefaultLeaseTtl*time.Second, func(ctx context.Context) {
+		p.lease, err = p.client.Grant(ctx, DefaultLeaseTtl)
+	})
+	if err != nil {
+		log.WithError(err).Fatalf("servicePool.init|The lease grant failed on the ETCD, nodePath: %s", nodePath)
+	}
+
+	leaseRespChan, err := p.client.KeepAlive(context.TODO(), p.lease.ID)
+	if err != nil {
+		log.WithError(err).Fatalf("servicePool.init|call etcd.KeepAlive fail, nodePath: %s", nodePath)
+	}
+
+	// 租约监控方法
+	leaseListenFn := func() {
+		for {
+			select {
+			case leaseKeepResp := <-leaseRespChan:
+				if leaseKeepResp == nil {
+					log.Fatalf("leaseListenFn| Lease continue fail")
+				} else {
+					// 说明网络已经启动
+					if p.checkNetFn != nil {
+						// 检查失败
+						if !p.checkNetFn() {
+							log.Fatalf("leaseListenFn| check net fail....exit node")
+						}
+					}
+					if log.IsLevelEnabled(log.DebugLevel) {
+						log.Debugf("leaseListenFn| Lease continue succeed")
+					}
+					goto END
+				}
+			}
+		END:
+			// todo: 是否要拉长？？？？？， 租约的监控时间是租约时间的一半，也就是2秒的时间，1秒就会收到通知，但这里人为的又设置了4秒
+			time.Sleep(DefaultLeaseTtl * 2 * time.Second)
+		}
+	}
+
+	go leaseListenFn()
+
 	// init
 	p.services = make(map[string]*Service)
 	p.knownNames = make(map[string]bool)
@@ -158,7 +219,7 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 		p.namesProvided = true
 	}
 
-	log.Infof("all Service serviceNames:%v", serviceNames)
+	log.Infof("servicePool.init|all Service serviceNames:%v", serviceNames)
 	for _, v := range serviceNames {
 		servicePath := joinPath(p.root, strings.TrimSpace(v))
 		p.knownNames[servicePath] = true
@@ -285,6 +346,7 @@ func (p *servicePool) startClient(ctx context.Context) error {
 
 // 开启一个服务的服务器
 func (p *servicePool) startServer(ctx context.Context, port int, startup func(*grpc.Server, *Service) error) {
+	// TODO: 这里会有问题。下面参数没有具体ip地址，只有端口
 	sw, err := NewServerWrapper(fmt.Sprintf(":%d", port))
 	if err != nil {
 		log.Fatalf("startServer %v err %v", port, err)
@@ -329,6 +391,10 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 
 	sw.Start()
 
+	// 间隔一定时间，把网络检查的方法赋出来，这样在租约监控的地方就能进行网络检查了。
+	time.Sleep(DefaultLeaseTtl)
+	p.checkNetFn = sw.checkNet
+
 	nodePath := joinPath(servicePath, p.selfNodeName)
 	node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, ServiceStatusPending}, true, TransferStatusSucc)
 	if err := service.addNode(node); err != nil {
@@ -348,19 +414,19 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 		case TransferStatusFail:
 			node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, ServiceStatusStopping}, true, TransferStatusFail)
 			if err := p.stopNode(nodePath, node); err != nil {
-				log.Error("startServer updateNode stop %v %v err %v", node.key, StatusServiceName[status], err)
+				log.Errorf("startServer updateNode stop %v %v err %v", node.key, StatusServiceName[status], err)
 			}
 			log.Errorf("startServer %v startup failure", p.selfNodeName)
 			os.Exit(0)
 		case TransferStatusSucc:
 			node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, ServiceStatusRunning}, true, TransferStatusSucc)
 			if err := service.updateNode(node); err != nil {
-				log.Error("startServer updateNode running %v %v err %v", node.key, StatusServiceName[status], err)
+				log.Errorf("startServer updateNode running %v %v err %v", node.key, StatusServiceName[status], err)
 			}
 			log.Info("startServer transfer success")
 			for {
 				if err := p.updateNodeData(nodePath, &node.data); err != nil {
-					log.Error("startServer updateNodeData %v %v err %v", nodePath, StatusServiceName[status], err)
+					log.Errorf("startServer updateNodeData %v %v err %v", nodePath, StatusServiceName[status], err)
 				} else {
 					goto StartServerDone
 				}
@@ -391,7 +457,7 @@ func (p *servicePool) stopNode(nodePath string, node *node) error {
 
 	for {
 		if err := p.updateNodeData(nodePath, &node.data); err != nil {
-			log.Error("startServer updateNodeData %v %v err %v", nodePath, StatusServiceName[node.data.Status], err)
+			log.Errorf("startServer updateNodeData %v %v err %v", nodePath, StatusServiceName[node.data.Status], err)
 		} else {
 			break
 		}
@@ -470,6 +536,10 @@ func (p *servicePool) watcher(servicePath string) error {
 
 // 初始化所有节点
 func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
+
+	// todo: 这里如果是服务器启动，那么自已节点就不应该在etcd中存在，但etcd租约设得比较长时，如果长了，还没来得急删除key
+	// todo: 然后突然起动，拿下来的状态就不对了。
+
 	kAPI := etcdclient.NewKV(p.client)
 	// get the keys under directory
 	log.Infof("initNodesOfService Service under:%v", servicePath)
@@ -610,9 +680,10 @@ func (p *servicePool) updateNodeData(nodePath string, nodeData *nodeData) error 
 	kAPI := etcdclient.NewKV(p.client)
 	// put the keys under directory
 	log.Infof("updateNodeData under %v %v", nodePath, nodeData)
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
-	_, err = kAPI.Put(ctx, nodePath, string(data))
-	cancel()
+
+	ctxfunc.Timeout(DefaultTimeout, func(ctx context.Context) {
+		_, err = kAPI.Put(ctx, nodePath, string(data), etcdclient.WithLease(p.lease.ID))
+	})
 	return err
 }
 
