@@ -163,7 +163,7 @@ func (proxy *proxyContext) waitMsg() (interface{}, error) {
 	case msg := <-proxy.respcha:
 		return msg, nil
 	case <-proxy.ctx.Done():
-		return proxy.ctx.Err(), nil
+		return nil, proxy.ctx.Err()
 	}
 }
 

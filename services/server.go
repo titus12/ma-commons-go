@@ -6,7 +6,6 @@ import (
 	"google.golang.org/grpc"
 	"math"
 	"net"
-	"runtime"
 	"sync"
 )
 
@@ -15,11 +14,16 @@ import (
 	"github.com/titus12/ma-commons-go/utils"
 )
 
+const defaultTcpDialTimeOut = 2 * time.Second
+
 type server struct{}
 
 type serverWrapper struct {
 	listener *net.Listener
 	gServer  *grpc.Server
+	wg       sync.WaitGroup
+
+	address string
 }
 
 // 接收牵移状态通知的，告知某节点数据牵移完成
@@ -35,11 +39,13 @@ func (s *server) Notify(cxt context.Context, node *gp.Node) (*gp.Result, error) 
 
 func NewServerWrapper(listen string) (*serverWrapper, error) {
 	serverWrapper := &serverWrapper{}
+	serverWrapper.address = listen
 	// 监听
 	lis, err := net.Listen("tcp", listen)
 	if err != nil {
 		return nil, err
 	}
+
 	log.Info("listening on ", lis.Addr())
 	//注册服务
 	s := grpc.NewServer(grpc.MaxConcurrentStreams(math.MaxInt32))
@@ -52,17 +58,36 @@ func NewServerWrapper(listen string) (*serverWrapper, error) {
 
 // 启动服务器
 func (s *serverWrapper) Start() {
-	var wg sync.WaitGroup
-	wg.Add(1)
+	s.wg.Add(1)
+	ch := make(chan struct{})
+	defer close(ch)
 	go func() {
-		wg.Done()
+		<-ch
 		err := s.gServer.Serve(*s.listener)
 		if err != nil {
-			log.Panic("启动服务失败......")
+			log.Fatalf("start tcp server err %v", err)
 		}
-
-		log.Infof("开始监听服务")
+		log.Infof("start tcp server listen")
 	}()
-	runtime.Gosched()
-	wg.Wait()
+	ch <- struct{}{}
+	//runtime.Gosched()
+}
+
+func (s *serverWrapper) Done() {
+	s.wg.Done()
+}
+
+func (s *serverWrapper) Wait() {
+	s.wg.Wait()
+}
+
+// 检查节点表示的网络是否畅通
+func (s *serverWrapper) checkNet() bool {
+	conn, err := net.DialTimeout("tcp", s.address, defaultTcpDialTimeOut)
+	if err != nil {
+		logrus.WithError(err).Errorf("探测连接失败...%s", s.address)
+		return false
+	}
+	defer conn.Close()
+	return true
 }

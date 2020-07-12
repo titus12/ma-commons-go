@@ -111,7 +111,7 @@ func (s *Service) addNode(node *node) error {
 	defer s.mu.Unlock()
 	for _, v := range s.nodes {
 		if v.key == node.key {
-			return fmt.Errorf("upsertNode node %v already exist", node.key)
+			return fmt.Errorf("addNode node %v already exist", node.key)
 		}
 	}
 	err := s.checkStatus(nil, node)
@@ -191,7 +191,7 @@ func (s *Service) delNode(key string) {
 			s.unstableConsistent.Remove(key)
 			s.nodes = append(s.nodes[:k], s.nodes[k+1:]...)
 			v.conn.Close()
-			log.Infof("Service removed: %v", key)
+			log.Infof("delNode service removed: %v", key)
 			return
 		}
 	}
@@ -200,18 +200,18 @@ func (s *Service) delNode(key string) {
 // 获取节点
 func (s *Service) getNode(id string) (node, error) {
 	s.mu.RLock()
-	defer s.mu.Unlock()
+	defer s.mu.RUnlock()
 	for k := range s.nodes {
 		if s.nodes[k].key == id {
 			return *s.nodes[k], nil
 		}
 	}
-	return node{}, fmt.Errorf("node %v id %v is not exist", s.name, id)
+	return node{}, fmt.Errorf("getNode node %v id %v is not exist", s.name, id)
 }
 
 func (s *Service) getNodeWithRoundRobin() (node, error) {
 	s.mu.RLock()
-	defer s.mu.Unlock()
+	defer s.mu.RUnlock()
 	count := len(s.nodes)
 	if count == 0 {
 		return node{}, ErrNoNodes
@@ -222,7 +222,7 @@ func (s *Service) getNodeWithRoundRobin() (node, error) {
 
 func (s *Service) getNodeWithHash(hash int) (node, error) {
 	s.mu.RLock()
-	defer s.mu.Unlock()
+	defer s.mu.RUnlock()
 	count := len(s.nodes)
 	if count == 0 {
 		return node{}, ErrNoNodes
@@ -235,7 +235,7 @@ func (s *Service) getNodeWithHash(hash int) (node, error) {
 // 这份数据进行逻缉操作时是不影响原环上的节点
 func (s *Service) getNodeWithConsistentHash(id string, isStable bool) (node, error) {
 	s.mu.RLock()
-	defer s.mu.Unlock()
+	defer s.mu.RUnlock()
 	count := len(s.nodes)
 	if count == 0 {
 		return node{}, ErrNoNodes
@@ -261,7 +261,7 @@ func (s *Service) getNodeWithConsistentHash(id string, isStable bool) (node, err
 
 func (s *Service) getNodes() []node {
 	s.mu.RLock()
-	defer s.mu.Unlock()
+	defer s.mu.RUnlock()
 	nodes := make([]node, 0, len(s.nodes))
 	for _, v := range s.nodes {
 		nodes = append(nodes, *v)

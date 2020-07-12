@@ -7,6 +7,7 @@ import (
 	"github.com/coreos/etcd/clientv3/concurrency"
 	"github.com/coreos/etcd/mvcc/mvccpb"
 	log "github.com/sirupsen/logrus"
+	"github.com/titus12/ma-commons-go/utils/ctxfunc"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"os"
@@ -21,8 +22,10 @@ import (
 )
 
 const (
-	DefaultTimeout = 10 * time.Second
-	DefaultRetries = 1440 // failed connection retries (for every ten seconds)
+	DefaultTimeout    = 10 * time.Second
+	DefaultRetries    = 1440 // failed connection retries (for every ten seconds)
+	DefaultLeaseTTL   = 5
+	DefaultNetRetries = 5
 )
 
 const (
@@ -78,19 +81,21 @@ func getFileName(path string) string {
 }
 
 func (p *retryManager) addRetry(key string) {
+	log.Infof("addRetry add retry... %s", key)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.retries[key] = DefaultRetries
-	log.Debugf("Add connect retry:%v", key)
+	log.Debugf("addRetry add connect retry:%v", key)
 }
 
 func (p *retryManager) delRetry(key string) {
+	log.Infof("delRetry del retry... %s", key)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	_, ok := p.retries[key]
 	if ok {
 		delete(p.retries, key)
-		log.Debugf("Del connect retry:%v", key)
+		log.Debugf("delRetry del connect retry:%v", key)
 	}
 }
 
@@ -100,18 +105,19 @@ func (p *retryManager) cycleCheck() {
 	defer utils.PrintPanicStack()
 	for key, value := range p.retries {
 		if value > 0 {
-			log.Debugf("Trying connecting:%v ......", key)
+			log.Debugf("trying connecting:%v ......", key)
 			if del := retryConn(key); del == true {
 				p.retries[key] = 0
-				log.Infof("Retry connecting on %v successfully !", key)
+				log.Infof("retry connecting on %v successfully !", key)
 			} else {
 				p.retries[key]--
 			}
 		}
 
 		if p.retries[key] == 0 {
+			log.Infof("cycleCheck retry...%s....del", key)
 			delete(p.retries, key)
-			log.Debugf("Delete retry connect on %v", key)
+			log.Debugf("delete retry connect on %v", key)
 		}
 	}
 }
@@ -126,7 +132,13 @@ type servicePool struct {
 	knownNames      map[string]bool // Service provided
 	namesProvided   bool
 	client          *etcdclient.Client
-	event           sync.Map // Service event notify
+
+	// 租约
+	lease *etcdclient.LeaseGrantResponse
+	event sync.Map // Service event notify
+
+	// 检查网格的方法
+	checkNetFn func() bool
 }
 
 func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfServiceName, selfNodeName, selfNodeAddr string) {
@@ -143,10 +155,64 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 	p.client = c
 	p.root = "/root" + root
 
-	//todo: 下面三个是准备都是全名称，还是简称
+	//简称
 	p.selfServiceName = selfServiceName
 	p.selfNodeName = selfNodeName
 	p.selfNodeAddr = selfNodeAddr
+
+	// 初始化时，自已节点的key不应该在etcd中的存在.....否则会引起状态不对
+	nodePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName), strings.TrimSpace(p.selfNodeName))
+	var gResp *etcdclient.GetResponse
+	ctxfunc.Timeout(DefaultLeaseTTL*time.Second, func(ctx context.Context) {
+		gResp, err = p.client.Get(ctx, nodePath)
+	})
+	if err != nil {
+		log.Fatalf("servicePool.init etcd access failed, nodePath %s err %v", nodePath, err)
+	}
+	if len(gResp.Kvs) > 0 {
+		log.Fatalf("servicePool.init the self node exists in the etcd, nodePath %s", nodePath, err)
+	}
+	// 建立本节点的租约
+	ctxfunc.Timeout(DefaultLeaseTTL*time.Second, func(ctx context.Context) {
+		p.lease, err = p.client.Grant(ctx, DefaultLeaseTTL)
+	})
+	if err != nil {
+		log.Fatalf("servicePool.init The lease grant failed on the etcd, nodePath %s err %v", nodePath, err)
+	}
+
+	leaseRespChan, err := p.client.KeepAlive(context.TODO(), p.lease.ID)
+	if err != nil {
+		log.Fatalf("servicePool.init call etcd.KeepAlive fail, nodePath: %s err %v", nodePath, err)
+	}
+	retryNum := DefaultNetRetries
+	// 租约监控方法
+	leaseListenFn := func() {
+		for {
+			select {
+			case leaseKeepResp := <-leaseRespChan:
+				if leaseKeepResp == nil {
+					log.Errorf("leaseListenFn Lease continue fail")
+					return
+				}
+				// 说明网络已经启动
+				// 检查失败
+				if p.checkNetFn != nil && !p.checkNetFn() {
+					//报警
+					log.Errorf("leaseListenFn check net fail,exit node %s", nodePath)
+					if retryNum--; retryNum <= 0 {
+						p.eventOnDestroy(selfNodeName)
+					}
+					return
+				} else {
+					retryNum = DefaultNetRetries
+				}
+				log.Debugf("leaseListenFn Lease continue succeed")
+			}
+			time.Sleep((DefaultLeaseTTL >> 1) * time.Second)
+		}
+	}
+
+	go leaseListenFn()
 	// init
 	p.services = make(map[string]*Service)
 	p.knownNames = make(map[string]bool)
@@ -155,11 +221,25 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 		p.namesProvided = true
 	}
 
-	log.Infof("all Service serviceNames:%v", serviceNames)
+	log.Infof("servicePool.init all Service serviceNames:%v", serviceNames)
 	for _, v := range serviceNames {
 		servicePath := joinPath(p.root, strings.TrimSpace(v))
 		p.knownNames[servicePath] = true
 		p.services[servicePath] = newService(v)
+	}
+
+	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
+	if p.services[servicePath] == nil {
+		nodePath := joinPath(servicePath, p.selfNodeName)
+		go func() {
+			err := p.watcher(nodePath)
+			if err != nil {
+				log.Fatalf("startClient watcher err %v", err)
+			}
+		}()
+		if err := p.updateNodeData(nodePath, &nodeData{p.selfNodeAddr, ServiceStatusRunning}); err != nil {
+			log.Fatalf("startClient updateNodeData %v %v err %v", nodePath, ServiceStatusRunning, err)
+		}
 	}
 }
 
@@ -245,21 +325,7 @@ func (p *servicePool) makeWork(queueSize int) (*work, func()) {
 func (p *servicePool) startClient(ctx context.Context) error {
 	w, cancel := p.makeWork(1024)
 	defer cancel()
-	defer func() {
-		servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
-		if p.services[servicePath] == nil {
-			nodePath := joinPath(servicePath, p.selfNodeName)
-			go func() {
-				err := p.watcher(nodePath)
-				if err != nil {
-					log.Fatalf("startClient watcher err %v", err)
-				}
-			}()
-			if err := p.updateNodeData(nodePath, &nodeData{p.selfNodeAddr, ServiceStatusRunning}); err != nil {
-				log.Fatalf("startClient updateNodeData %v %v err %v", nodePath, ServiceStatusRunning, err)
-			}
-		}
-	}()
+
 	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
 	for k, _ := range p.services {
 		if k == servicePath {
@@ -282,6 +348,7 @@ func (p *servicePool) startClient(ctx context.Context) error {
 
 // 开启一个服务的服务器
 func (p *servicePool) startServer(ctx context.Context, port int, startup func(*grpc.Server, *Service) error) {
+	// TODO: 这里会有问题。下面参数没有具体ip地址，只有端口
 	sw, err := NewServerWrapper(fmt.Sprintf(":%d", port))
 	if err != nil {
 		log.Fatalf("startServer %v err %v", port, err)
@@ -292,7 +359,7 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
 	mtx, err := p.newMutex(p.selfServiceName)
 	if err != nil {
-		log.Fatalf("lock Service err %v", err)
+		log.Fatalf("startServer lock Service err %v", err)
 	}
 	mtx.Lock(context.TODO())
 	defer mtx.Unlock(context.TODO())
@@ -321,10 +388,14 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	}
 	//startup func
 	if err := startup(sw.gServer, service); err != nil {
-		log.Fatalf("startup func err %v", err)
+		log.Fatalf("startServer startup func err %v", err)
 	}
 
 	sw.Start()
+
+	// 间隔一定时间，把网络检查的方法赋出来，这样在租约监控的地方就能进行网络检查了。
+	time.Sleep(DefaultLeaseTTL * time.Second)
+	p.checkNetFn = sw.checkNet
 
 	nodePath := joinPath(servicePath, p.selfNodeName)
 	node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, ServiceStatusPending}, true, TransferStatusSucc)
@@ -345,19 +416,19 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 		case TransferStatusFail:
 			node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, ServiceStatusStopping}, true, TransferStatusFail)
 			if err := p.stopNode(nodePath, node); err != nil {
-				log.Error("startServer updateNode stop %v %v err %v", node.key, StatusServiceName[status], err)
+				log.Errorf("startServer updateNode stop %v %v err %v", node.key, StatusServiceName[status], err)
 			}
 			log.Errorf("startServer %v startup failure", p.selfNodeName)
 			os.Exit(0)
 		case TransferStatusSucc:
 			node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, ServiceStatusRunning}, true, TransferStatusSucc)
 			if err := service.updateNode(node); err != nil {
-				log.Error("startServer updateNode running %v %v err %v", node.key, StatusServiceName[status], err)
+				log.Errorf("startServer updateNode running %v %v err %v", node.key, StatusServiceName[status], err)
 			}
 			log.Info("startServer transfer success")
 			for {
 				if err := p.updateNodeData(nodePath, &node.data); err != nil {
-					log.Error("startServer updateNodeData %v %v err %v", nodePath, StatusServiceName[status], err)
+					log.Errorf("startServer updateNodeData %v %v err %v", nodePath, StatusServiceName[status], err)
 				} else {
 					goto StartServerDone
 				}
@@ -368,7 +439,8 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 		time.Sleep(100)
 	}
 StartServerDone:
-	log.Infof("node %v startup completed", p.selfNodeName)
+	log.Infof("startServer node %v startup completed", p.selfNodeName)
+	sw.Wait()
 }
 
 // 停止一个节点
@@ -387,7 +459,7 @@ func (p *servicePool) stopNode(nodePath string, node *node) error {
 
 	for {
 		if err := p.updateNodeData(nodePath, &node.data); err != nil {
-			log.Error("startServer updateNodeData %v %v err %v", nodePath, StatusServiceName[node.data.Status], err)
+			log.Errorf("startServer updateNodeData %v %v err %v", nodePath, StatusServiceName[node.data.Status], err)
 		} else {
 			break
 		}
@@ -432,6 +504,11 @@ func (p *servicePool) watcher(servicePath string) error {
 			func() {
 				defer utils.PrintPanicStack()
 				key := string(v.Kv.Key)
+
+				//nodes, _ := p.getServices("/root/backend/gameser")
+				//log.Infof("收到事件 %s, %s|本地：%v", v.Kv.Key, v.Kv.Value, nodes[0])
+				log.Infof("watcher receive event %s, %s", v.Kv.Key, v.Kv.Value)
+
 				if ok := p.upsertNode(key, v.Kv.Value); !ok {
 					addRetry(key)
 				}
@@ -461,6 +538,10 @@ func (p *servicePool) watcher(servicePath string) error {
 
 // 初始化所有节点
 func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
+
+	// todo: 这里如果是服务器启动，那么自已节点就不应该在etcd中存在，但etcd租约设得比较长时，如果长了，还没来得急删除key
+	// todo: 然后突然起动，拿下来的状态就不对了。
+
 	kAPI := etcdclient.NewKV(p.client)
 	// get the keys under directory
 	log.Infof("initNodesOfService Service under:%v", servicePath)
@@ -473,8 +554,6 @@ func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 	}
 
 	for _, ev := range resp.Kvs {
-		// todo: 下面这里要多注意，检查一下其他地方是否有类似的，这里主要是跳过作为目录的key
-		// todo： 比如这里servicePath本身是是一个目录，这类型key不能解析，否则会出错。
 		keyStr := utils.BytesToString(ev.Key)
 		if keyStr == servicePath {
 			continue
@@ -588,7 +667,7 @@ func (p *servicePool) removeNode(key string) {
 	}
 }
 
-// 向etcd更新节点数据
+// etcd更新节点数据
 func (p *servicePool) updateNodeData(nodePath string, nodeData *nodeData) error {
 	servicePath := filepath.Dir(nodePath)
 	servicePath = strings.ReplaceAll(servicePath, `\`, `/`)
@@ -603,9 +682,10 @@ func (p *servicePool) updateNodeData(nodePath string, nodeData *nodeData) error 
 	kAPI := etcdclient.NewKV(p.client)
 	// put the keys under directory
 	log.Infof("updateNodeData under %v %v", nodePath, nodeData)
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
-	_, err = kAPI.Put(ctx, nodePath, string(data))
-	cancel()
+
+	ctxfunc.Timeout(DefaultTimeout, func(ctx context.Context) {
+		_, err = kAPI.Put(ctx, nodePath, string(data), etcdclient.WithLease(p.lease.ID))
+	})
 	return err
 }
 
@@ -684,6 +764,7 @@ func (p *servicePool) registerCallback(path string, callback func(key string, st
 }
 
 func (p *servicePool) retryConn(key string) (del bool) {
+	log.Infof("retryConn start retry...%s", key)
 	kAPI := etcdclient.NewKV(p.client)
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	resp, err := kAPI.Get(ctx, key)
@@ -694,6 +775,7 @@ func (p *servicePool) retryConn(key string) (del bool) {
 		return
 	}
 	del = p.upsertNode(key, resp.Kvs[0].Value)
+	log.Infof("retryConn retry done...%s, %t", key, del)
 	return
 }
 
