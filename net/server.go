@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -25,6 +26,21 @@ type Config struct {
 	Nodelay, Interval, Resend, NC int
 }
 
+type connWrapper struct {
+	conn        net.Conn
+	closeStatus int32
+}
+
+func makeConn(conn net.Conn) (*connWrapper, func()) {
+	cw := &connWrapper{conn: conn, closeStatus: 0}
+	closeFn := func() {
+		if atomic.CompareAndSwapInt32(&cw.closeStatus, 0, 1) {
+			cw.conn.Close()
+		}
+	}
+	return cw, closeFn
+}
+
 type ConnectionHandler func(session *Session, in chan []byte, out *Buffer)
 
 //type ConnectionHandle interface {
@@ -41,9 +57,10 @@ func NewServerHandler(cfg *Config, connectionHandler ConnectionHandler) *serverH
 }
 
 // 每个连接会调用这个方法，启动一个goroutine
-func (serverHandler *serverHandler) ConnectionActive(conn net.Conn) {
+func (serverHandler *serverHandler) ConnectionActive(connection net.Conn) {
 	defer utils.PrintPanicStack()
-	defer conn.Close()
+	cw, closeFn := makeConn(connection)
+	defer closeFn()
 
 	// for reading the 2-Byte header
 	header := make([]byte, 2)
@@ -57,13 +74,13 @@ func (serverHandler *serverHandler) ConnectionActive(conn net.Conn) {
 	// create a new session object for the connection
 	// and record it's IP address
 	var sess Session
-	host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
+	host, _, err := net.SplitHostPort(cw.conn.RemoteAddr().String())
 	if err != nil {
 		log.Error("cannot get remote address:", err)
 		return
 	}
 	sess.IP = net.ParseIP(host)
-	sess.Addr = conn.RemoteAddr().String() //sess.IP.String()
+	sess.Addr = cw.conn.RemoteAddr().String() //sess.IP.String()
 
 	log.WithFields(log.Fields{
 		"client_ip": sess.IP.String(),
@@ -73,38 +90,41 @@ func (serverHandler *serverHandler) ConnectionActive(conn net.Conn) {
 	sess.Die = make(chan struct{})
 
 	// create a write buffer
-	// todo: 这里实际是启动一个 goroutine 进行写操作，命名成 Buffer ,名称有岐义
-	out := NewBuffer(conn, sess.Die, serverHandler.config.Txqueuelen)
-	go out.start()
-
+	out := NewBuffer(cw.conn, sess.Die, serverHandler.config.Txqueuelen)
+	go func() {
+		defer closeFn()
+		out.start()
+	}()
 	// start agent for PACKET processing
 	SigAdd()
 	go func() {
-		defer SigDone() // will decrease waitgroup by one, useful for manual server shutdown
 		defer utils.PrintPanicStack()
+		defer SigDone() // will decrease waitgroup by one, useful for manual server shutdown
 		serverHandler.connHandler(&sess, in, out)
 	}()
 
 	// read loop
 	for {
 		// solve dead link problem:
-		// physical disconnection without any communcation between client and server
+		// physical disconnection without any communication between client and server
 		// will cause the read to block FOREVER, so a timeout is a rescue.
-		conn.SetReadDeadline(time.Now().Add(serverHandler.config.ReadDeadline))
-
+		cw.conn.SetReadDeadline(time.Now().Add(serverHandler.config.ReadDeadline))
 		// read 2B header
-		n, err := io.ReadFull(conn, header)
+		n, err := io.ReadFull(cw.conn, header)
 		if err != nil {
 			log.Warningf("read header failed, ip:%v reason:%v size:%v", sess.IP, err, n)
 			return
 		}
-		size := binary.BigEndian.Uint16(header)
 
+		size := binary.BigEndian.Uint16(header)
+		if size < 0 {
+			log.Warningf("read header size failed, ip:%v reason:%v size:%v", sess.IP, err, n)
+			return
+		}
 		// alloc a byte slice of the size defined in the header for reading data
 		payload := make([]byte, size)
-		n, err = io.ReadFull(conn, payload)
+		n, err = io.ReadFull(cw.conn, payload)
 		if err != nil {
-			// todo: 错误后没有后续的处理了? 前面的 go程已经开启了？ 直接退出估计会有问题，go程会有泄露
 			log.Warningf("read payload failed, ip:%v reason:%v size:%v", sess.IP, err, n)
 			return
 		}
