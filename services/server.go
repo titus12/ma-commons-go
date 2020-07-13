@@ -7,6 +7,7 @@ import (
 	"math"
 	"net"
 	"sync"
+	"time"
 )
 
 import (
@@ -65,7 +66,7 @@ func (s *serverWrapper) Start() {
 		<-ch
 		err := s.gServer.Serve(*s.listener)
 		if err != nil {
-			log.Fatalf("start tcp server err %v", err)
+			log.Fatalf("start tcp server err: %v", err)
 		}
 		log.Infof("start tcp server listen")
 	}()
@@ -85,7 +86,7 @@ func (s *serverWrapper) Wait() {
 func (s *serverWrapper) checkNet() bool {
 	conn, err := net.DialTimeout("tcp", s.address, defaultTcpDialTimeOut)
 	if err != nil {
-		logrus.WithError(err).Errorf("探测连接失败...%s", s.address)
+		log.Errorf("checkNet %s err %v", s.address, err)
 		return false
 	}
 	defer conn.Close()

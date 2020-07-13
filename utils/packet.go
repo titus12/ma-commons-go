@@ -268,10 +268,10 @@ func (p *Packet) WriteFloat64(f float64) {
 	p.WriteU64(v)
 }
 
-func Reader(data []byte) *Packet {
+func PacketReader(data []byte) *Packet {
 	return &Packet{data: data}
 }
 
-func Writer() *Packet {
+func PacketWriter() *Packet {
 	return &Packet{data: make([]byte, 0, 512)}
 }

@@ -2,54 +2,17 @@ package net
 
 import (
 	"encoding/binary"
-	"net"
-
 	log "github.com/sirupsen/logrus"
-	"github.com/titus12/ma-commons-go/cryptos"
 	"github.com/titus12/ma-commons-go/utils"
+	"net"
 )
 
 type Buffer struct {
 	ctrl    chan struct{} // receive exit signal
 	pending chan []byte   // pending packets
 	conn    net.Conn      // connection
-	cache   []byte        // for combined syscall write
-}
-
-// packet sending procedure
-func (buf *Buffer) Send(sess *Session, data []byte) {
-	// in case of empty packet
-	if data == nil {
-		return
-	}
-
-	// todo: 下面有提到先是 NOT_ENCRYPTED -> KEYEXCG -> ENCRYPT
-	// todo: 我没有看到哪里有对sess.Flag 进特 sess.Flag |= SESS_KEYEXCG
-	// todo: 所以下面 if和else if包含的代码都是没办法执行的
-	// todo: 即便是能执行，这个密钥是交换给谁，客户端，那是什么协议交换？
-	// encryption
-	// (NOT_ENCRYPTED) -> KEYEXCG -> ENCRYPT
-	if sess.Flag&SESS_ENCRYPT != 0 { // encryption is enabled
-		//sess.Encoder.XORKeyStream(data, data)
-		var err error
-		data, err = cryptos.Encrypt(data, sess.CryptoKey)
-		if err != nil {
-			log.WithFields(log.Fields{"user_id": sess.UserId, "ip": sess.IP}).Errorf("des.Encrypt errors %v", err)
-			return
-		}
-	} else if sess.Flag&SESS_KEYEXCG != 0 { // key is exchanged, encryption is not yet enabled
-		sess.Flag &^= SESS_KEYEXCG
-		sess.Flag |= SESS_ENCRYPT
-		// todo: 这里进行密钥交换，交换给谁？
-	}
-
-	// queue the data for sending
-	select {
-	case buf.pending <- data:
-	default: // packet will be dropped if txqueuelen exceeds
-		log.WithFields(log.Fields{"user_id": sess.UserId, "ip": sess.IP}).Warning("pending full")
-	}
-	return
+	// TODO::优化
+	cache []byte // for combined syscall write
 }
 
 // packet sending goroutine
