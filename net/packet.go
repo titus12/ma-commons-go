@@ -22,6 +22,10 @@ func (p *Packet) Length() int {
 	return len(p.data)
 }
 
+func (p *Packet) Pos() int {
+	return p.pos
+}
+
 //=============================================== Readers
 func (p *Packet) ReadBinary() (ret []byte, err error) {
 	if p.pos > len(p.data) {

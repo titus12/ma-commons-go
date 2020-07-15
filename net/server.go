@@ -85,7 +85,7 @@ func (ns *NetSession) closeConn() {
 	}
 }
 
-func (ns *NetSession) Receive() chan []byte {
+func (ns *NetSession) Receive() <-chan []byte {
 	return ns.in
 }
 

@@ -850,36 +850,36 @@ func GetService(serviceName string) *Service {
 	return _defaultPool.services[serviceName]
 }
 
-func GetServiceWithConsistentHash(serviceName string, key string) (bool, nodeData, *grpc.ClientConn, error) {
+func GetServiceWithConsistentHash(serviceName string, key string) (bool, string, nodeData, *grpc.ClientConn, error) {
 	node, err := _defaultPool.getServiceWithConsistentHash(joinPath(_defaultPool.root, serviceName), key)
 	if err != nil {
-		return false, nodeData{}, nil, err
+		return false, "", nodeData{}, nil, err
 	}
-	return node.isLocal, node.data, node.conn, nil
+	return node.isLocal, node.key, node.data, node.conn, nil
 }
 
-func getServiceWithRoundRobin(serviceName string) (bool, nodeData, *grpc.ClientConn, error) {
+func GetServiceWithRoundRobin(serviceName string) (bool, string, nodeData, *grpc.ClientConn, error) {
 	node, err := _defaultPool.getServiceWithRoundRobin(joinPath(_defaultPool.root, serviceName))
 	if err != nil {
-		return false, nodeData{}, nil, err
+		return false, "", nodeData{}, nil, err
 	}
-	return node.isLocal, node.data, node.conn, nil
+	return node.isLocal, node.key, node.data, node.conn, nil
 }
 
-func GetServiceWithId(serviceName string, id string) (bool, nodeData, *grpc.ClientConn, error) {
+func GetServiceWithId(serviceName string, id string) (bool, string, nodeData, *grpc.ClientConn, error) {
 	node, err := _defaultPool.getServiceWithId(joinPath(_defaultPool.root, serviceName), id)
 	if err != nil {
-		return false, nodeData{}, nil, err
+		return false, "", nodeData{}, nil, err
 	}
-	return node.isLocal, node.data, node.conn, nil
+	return node.isLocal, node.key, node.data, node.conn, nil
 }
 
-func GetServiceWithHash(serviceName string, hash int) (bool, nodeData, *grpc.ClientConn, error) {
+func GetServiceWithHash(serviceName string, hash int) (bool, string, nodeData, *grpc.ClientConn, error) {
 	node, err := _defaultPool.getServiceWithHash(joinPath(_defaultPool.root, serviceName), hash)
 	if err != nil {
-		return false, nodeData{}, nil, err
+		return false, "", nodeData{}, nil, err
 	}
-	return node.isLocal, node.data, node.conn, nil
+	return node.isLocal, node.key, node.data, node.conn, nil
 }
 
 func GetServices(path string) ([]node, error) {
