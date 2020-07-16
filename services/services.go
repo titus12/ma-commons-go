@@ -588,7 +588,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 	info := &NodeData{}
 	err := json.Unmarshal(value, info)
 	if err != nil {
-		log.Errorf("upsertNode NodeData Parse value:%v, err:%v", value, err)
+		log.Errorf("upsertNode NodeData Parse value:%v, err:%v", string(value), err)
 		return false
 	}
 	if info.Status == ServiceStatusNone {
@@ -601,22 +601,22 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 		node := NewNode(nodeName, nil, *info, true, TransferStatusSucc)
 		err = service.upsertNode(node)
 		if err != nil {
-			log.Errorf("upsertNode local %v - %v err %v", key, value, err)
+			log.Warnf("upsertNode local %v - %v err %v", key, string(value), err)
 			return true
 		}
-		log.Infof("upsertNode local %v - %v", key, value)
+		log.Infof("upsertNode local %v - %v", key, string(value))
 	} else {
 		ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 		conn, err := grpc.DialContext(ctx, info.Addr, grpc.WithBlock(), grpc.WithInsecure())
 		cancel()
 		if err != nil {
-			log.Errorf("upsertNode Service connect %v - %v, Error: %v", key, value, err)
+			log.Errorf("upsertNode Service connect %v - %v, Error: %v", key, string(value), err)
 			return false
 		}
 		node := NewNode(nodeName, conn, *info, false, 0)
 		err = service.upsertNode(node)
 		if err != nil {
-			log.Errorf("upsertNode remote %v - %v err %v", key, value, err)
+			log.Errorf("upsertNode remote %v - %v err %v", key, string(value), err)
 			return false
 		}
 		log.Infof("upsertNode remote %v - %v", key, value)
@@ -625,7 +625,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 			sendNode := &gp.Node{Name: key, Status: TransferStatusSucc}
 			if err != nil {
 				sendNode.Status = TransferStatusFail
-				log.Errorf("upsertNode remote callback %v - %v err %v", key, value, err)
+				log.Errorf("upsertNode remote callback %v - %v err %v", key, string(value), err)
 			}
 			for {
 				ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
@@ -633,13 +633,13 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 				result, err := cli.Notify(ctx, sendNode)
 				cancel()
 				if err != nil {
-					log.Errorf("upsertNode remote Notify %v - %v err %v", key, value, err)
+					log.Errorf("upsertNode remote Notify %v - %v err %v", key, string(value), err)
 				} else {
 					if result.ErrorCode == 0 {
-						log.Infof("upsertNode remote Notify %v - %v succ", key, value)
+						log.Infof("upsertNode remote Notify %v - %v succ", key, string(value))
 						break
 					} else {
-						log.Errorf("upsertNode remote Notify %v - %v receive result %v", key, value, result)
+						log.Errorf("upsertNode remote Notify %v - %v receive result %v", key, string(value), result)
 					}
 				}
 				time.Sleep(time.Second * 1)

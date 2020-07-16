@@ -12,8 +12,6 @@ import (
 	"github.com/titus12/ma-commons-go/actor"
 	"github.com/titus12/ma-commons-go/services"
 	"github.com/titus12/ma-commons-go/testconsole/testmsg"
-
-	_ "github.com/titus12/ma-commons-go/logwrap"
 )
 
 var (
@@ -69,8 +67,6 @@ func Example() {
 		"gameser",
 		"guildser",
 	}
-
-
 
 	nodeAddr := fmt.Sprintf("%s:%d", setting.Ip, setting.Port)
 	// 完成集群的初始化
