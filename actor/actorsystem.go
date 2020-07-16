@@ -336,7 +336,7 @@ func workflow(system *System, target int64, net Response, localProcess func(),
 		}
 	}
 
-	if status != nodeStatusStoping {
+	if status != nodeStatusStopping {
 		if local {
 			// 本地处理
 			localProcess()

@@ -186,6 +186,7 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 	}
 	retryNum := DefaultNetRetries
 	// 租约监控方法
+	<-leaseRespChan
 	leaseListenFn := func() {
 		for {
 			select {
@@ -237,7 +238,7 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 				log.Fatalf("startClient watcher err %v", err)
 			}
 		}()
-		if err := p.updateNodeData(nodePath, &nodeData{p.selfNodeAddr, ServiceStatusRunning}); err != nil {
+		if err := p.updateNodeData(nodePath, &NodeData{p.selfNodeAddr, ServiceStatusRunning}); err != nil {
 			log.Fatalf("startClient updateNodeData %v %v err %v", nodePath, ServiceStatusRunning, err)
 		}
 	}
@@ -403,7 +404,7 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	p.checkNetFn = sw.checkNet
 
 	nodePath := joinPath(servicePath, p.selfNodeName)
-	node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, ServiceStatusPending}, true, TransferStatusSucc)
+	node := NewNode(p.selfNodeName, nil, NodeData{p.selfNodeAddr, ServiceStatusPending}, true, TransferStatusSucc)
 	if err := service.addNode(node); err != nil {
 		log.Fatalf("startServer upsertNode %v %v err %v", node.key, StatusServiceName[node.data.Status], err)
 	}
@@ -419,14 +420,14 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 		transfer := service.isCompleted(p.selfNodeName)
 		switch transfer {
 		case TransferStatusFail:
-			node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, ServiceStatusStopping}, true, TransferStatusFail)
+			node := NewNode(p.selfNodeName, nil, NodeData{p.selfNodeAddr, ServiceStatusStopping}, true, TransferStatusFail)
 			if err := p.stopNode(nodePath, node); err != nil {
 				log.Errorf("startServer updateNode stop %v %v err %v", node.key, StatusServiceName[status], err)
 			}
 			log.Errorf("startServer %v startup failure", p.selfNodeName)
 			os.Exit(0)
 		case TransferStatusSucc:
-			node := NewNode(p.selfNodeName, nil, nodeData{p.selfNodeAddr, ServiceStatusRunning}, true, TransferStatusSucc)
+			node := NewNode(p.selfNodeName, nil, NodeData{p.selfNodeAddr, ServiceStatusRunning}, true, TransferStatusSucc)
 			if err := service.updateNode(node); err != nil {
 				log.Errorf("startServer updateNode running %v %v err %v", node.key, StatusServiceName[status], err)
 			}
@@ -563,10 +564,10 @@ func (p *servicePool) initNodesOfService(servicePath string, w *work) error {
 		if keyStr == servicePath {
 			continue
 		}
-		info := &nodeData{}
+		info := &NodeData{}
 		err := json.Unmarshal(ev.Value, info)
 		if err != nil {
-			return fmt.Errorf("initNodesOfService nodeData Parse value:%v, err:%v", string(ev.Key), err)
+			return fmt.Errorf("initNodesOfService NodeData Parse value:%v, err:%v", string(ev.Key), err)
 		}
 		if info.Status == ServiceStatusNone {
 			continue
@@ -584,10 +585,10 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 		return true
 	}
 
-	info := &nodeData{}
+	info := &NodeData{}
 	err := json.Unmarshal(value, info)
 	if err != nil {
-		log.Errorf("upsertNode nodeData Parse value:%v, err:%v", value, err)
+		log.Errorf("upsertNode NodeData Parse value:%v, err:%v", value, err)
 		return false
 	}
 	if info.Status == ServiceStatusNone {
@@ -673,7 +674,7 @@ func (p *servicePool) removeNode(key string) {
 }
 
 // etcd更新节点数据
-func (p *servicePool) updateNodeData(nodePath string, nodeData *nodeData) error {
+func (p *servicePool) updateNodeData(nodePath string, nodeData *NodeData) error {
 	servicePath := filepath.Dir(nodePath)
 	servicePath = strings.ReplaceAll(servicePath, `\`, `/`)
 
@@ -682,7 +683,7 @@ func (p *servicePool) updateNodeData(nodePath string, nodeData *nodeData) error 
 	}
 	data, err := json.Marshal(nodeData)
 	if err != nil {
-		return fmt.Errorf("updateNodeData nodeData Marshal value:%v, err:%v", data, err)
+		return fmt.Errorf("updateNodeData NodeData Marshal value:%v, err:%v", data, err)
 	}
 	kAPI := etcdclient.NewKV(p.client)
 	// put the keys under directory
@@ -855,7 +856,7 @@ func GetService(serviceName string) *Service {
 	return _defaultPool.services[serviceName]
 }
 
-func GetServiceWithConsistentHash(serviceName string, key string) (bool, string, nodeData, *grpc.ClientConn, error) {
+func GetServiceWithConsistentHash(serviceName string, key string) (bool, string, NodeData, *grpc.ClientConn, error) {
 	node, err := _defaultPool.getServiceWithConsistentHash(joinPath(_defaultPool.root, serviceName), key)
 	if err != nil {
 		return false, "", nodeData{}, nil, err
@@ -863,7 +864,7 @@ func GetServiceWithConsistentHash(serviceName string, key string) (bool, string,
 	return node.isLocal, node.key, node.data, node.conn, nil
 }
 
-func GetServiceWithRoundRobin(serviceName string) (bool, string, nodeData, *grpc.ClientConn, error) {
+func GetServiceWithRoundRobin(serviceName string) (bool, string, NodeData, *grpc.ClientConn, error) {
 	node, err := _defaultPool.getServiceWithRoundRobin(joinPath(_defaultPool.root, serviceName))
 	if err != nil {
 		return false, "", nodeData{}, nil, err
@@ -871,7 +872,7 @@ func GetServiceWithRoundRobin(serviceName string) (bool, string, nodeData, *grpc
 	return node.isLocal, node.key, node.data, node.conn, nil
 }
 
-func GetServiceWithId(serviceName string, id string) (bool, string, nodeData, *grpc.ClientConn, error) {
+func GetServiceWithId(serviceName string, id string) (bool, string, NodeData, *grpc.ClientConn, error) {
 	node, err := _defaultPool.getServiceWithId(joinPath(_defaultPool.root, serviceName), id)
 	if err != nil {
 		return false, "", nodeData{}, nil, err
@@ -879,7 +880,7 @@ func GetServiceWithId(serviceName string, id string) (bool, string, nodeData, *g
 	return node.isLocal, node.key, node.data, node.conn, nil
 }
 
-func GetServiceWithHash(serviceName string, hash int) (bool, string, nodeData, *grpc.ClientConn, error) {
+func GetServiceWithHash(serviceName string, hash int) (bool, string, NodeData, *grpc.ClientConn, error) {
 	node, err := _defaultPool.getServiceWithHash(joinPath(_defaultPool.root, serviceName), hash)
 	if err != nil {
 		return false, "", nodeData{}, nil, err

@@ -22,7 +22,7 @@ message WrapMsg {
 message RequestMsg {
     ActorDesc     sender         = 1;        //发送者
     ActorDesc     target         = 2;        //接收者
-    int64         req_id         = 3;        //如果是请求消息会有请求id
+    uint64         req_id         = 3;        //如果是请求消息会有请求id
 
     RedirectInfo  redirect       = 4;        //重定向信息
 
@@ -35,7 +35,7 @@ message RequestMsg {
 // 响应消息
 message ResponseMsg {
     ActorDesc         resper = 1;  //响应者
-    int64             req_id = 2;       //请求id
+    uint64            req_id = 2;       //请求id
     WrapMsg           data   = 3;     //数据
 }
 

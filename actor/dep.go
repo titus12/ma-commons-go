@@ -4,19 +4,18 @@ import "google.golang.org/grpc"
 
 // 节点状态  todo:
 const (
-	nodeStatusRunning int32 = 1 // 运行中
-	nodeStatusPadding int32 = 2 // 正在开启
-	nodeStatusStoping int32 = 3 // 停止中
-
+	nodeStatusNone     = iota
+	nodeStatusPending  //加入中
+	nodeStatusRunning  //运行中
+	nodeStatusStopping //停止中
 )
 
-//// 节点状态
-//const (
-//	ServiceStatusNone     = iota // 节点起动中，还未加入到集群，暂时不可提供服务，可以认为服务就是不存在
-//	ServiceStatusPending         // 节点已加入到服务，但是目前还是在等其他节点完成操作（比如数据牵移）
-//	ServiceStatusRunning         // 节点处于正常，可对外提供服务
-//	ServiceStatusStopping        // 节点正在关闭，节点可以被路由到，但不对外提供服务
-//)
+var nodeStatusName = map[int32]string{
+	nodeStatusNone:     "NONE",
+	nodeStatusPending:  "PENDING",
+	nodeStatusRunning:  "RUNNING",
+	nodeStatusStopping: "STOPPING",
+}
 
 // 缓存托管接口，在某些时候我们希望有地方可以管理进程中的内存，避免内存无限增长带来
 // 的问题, cache必须实现sync.Map的接口，也就是下面的接口，规范也是按sync.Map来，必
