@@ -607,7 +607,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 		log.Infof("upsertNode local %v - %v", key, value)
 	} else {
 		ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
-		conn, err := grpc.DialContext(ctx, info.Addr, grpc.WithBlock())
+		conn, err := grpc.DialContext(ctx, info.Addr, grpc.WithBlock(), grpc.WithInsecure())
 		cancel()
 		if err != nil {
 			log.Errorf("upsertNode Service connect %v - %v, Error: %v", key, value, err)
