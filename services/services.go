@@ -514,7 +514,6 @@ func (p *servicePool) watcher(servicePath string) error {
 				//nodes, _ := p.getServices("/root/backend/gameser")
 				//log.Infof("收到事件 %s, %s|本地：%v", v.Kv.Key, v.Kv.Value, nodes[0])
 				log.Infof("watcher receive event %s, %s", v.Kv.Key, v.Kv.Value)
-
 				if ok := p.upsertNode(key, v.Kv.Value); !ok {
 					addRetry(key)
 				}
@@ -530,7 +529,7 @@ func (p *servicePool) watcher(servicePath string) error {
 				case etcdclient.EventTypePut:
 					events <- event
 				case etcdclient.EventTypeDelete:
-					key := string(event.PrevKv.Key)
+					key := string(event.Kv.Key)
 					p.removeNode(key)
 					delRetry(key)
 				default:
@@ -628,7 +627,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 			err := service.callback(nodeName, node.data.Status)
 
 			//todo: 没改之前的代码 sendNode := &gp.Node{Name: key, Status: TransferStatusSucc}
-			selfNodePath := fmt.Sprintf("%s/%s/%s", p.root, p.selfServiceName, p.selfNodeName)
+			selfNodePath := joinPath(servicePath, p.selfNodeName)
 			sendNode := &gp.Node{Name: selfNodePath, Status: TransferStatusSucc}
 			//sendNode := &gp.Node{Name: key, Status: TransferStatusSucc}
 
@@ -673,7 +672,7 @@ func (p *servicePool) eventOnDestroy(nodeName string) {
 func (p *servicePool) removeNode(key string) {
 	// name check
 	nodeName := getFileName(key)
-	servicePath := filepath.Dir(key)
+	servicePath := getDir(key)
 
 	// check Service kind
 	service := p.services[servicePath]
@@ -687,9 +686,7 @@ func (p *servicePool) removeNode(key string) {
 
 // etcd更新节点数据
 func (p *servicePool) updateNodeData(nodePath string, nodeData *NodeData) error {
-	servicePath := filepath.Dir(nodePath)
-	servicePath = strings.ReplaceAll(servicePath, `\`, `/`)
-
+	servicePath := getDir(nodePath)
 	if p.namesProvided && !p.knownNames[servicePath] {
 		return nil
 	}
@@ -709,7 +706,7 @@ func (p *servicePool) updateNodeData(nodePath string, nodeData *NodeData) error 
 
 // 向etcd移除节点数据
 func (p *servicePool) RemoveNodeData(nodePath string) error {
-	servicePath := filepath.Dir(nodePath)
+	servicePath := getDir(nodePath)
 	if p.namesProvided && !p.knownNames[servicePath] {
 		return nil
 	}
