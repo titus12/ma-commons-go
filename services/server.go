@@ -66,7 +66,7 @@ func (s *serverWrapper) Start() {
 		<-ch
 		err := s.gServer.Serve(*s.listener)
 		if err != nil {
-			log.Fatalf("start tcp server err: %v", err)
+			log.Fatalf("start tcp server err %v", err)
 		}
 		log.Infof("start tcp server listen")
 	}()

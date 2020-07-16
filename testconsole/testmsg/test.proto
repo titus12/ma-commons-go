@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package testmsg;
+
+// 集群处于稳定
+// 控制台根据玩家id，通过与gameser一样的一致性哈希算法,直接命中节点，并向节点发送消息，让节点在本地执行
+// 必须保证senderId与targetId一定在本地节点上
+message LocalRun {
+    uint64 req_id = 1;          // 请求id(唯一，最后用于收集日志)
+    int64 sender_id = 2;        // 节点上发送者id
+    int64 target_id = 3;        // 节点上目标id
+    string content = 4;         //内容(节点打印的内容), actor打印的内容
+}
+
+message LocalRunResponse {
+    uint64 reply_id = 1;        // 根据请求id的回复，一般就是请求id
+}
+
+
+
+
+
+
+// 稳定的执行消息， 控制台根据玩家id, 通过与gameser一样的一致性哈希算法
+// 直接命中节点，并向节点发送消息，让节点在本地发送请求响应消息，请求响应都是是本地节点完成
+// 然后返回结果
+//message StableRunMsgWithRespToLocal {
+//
+//    int64 actor_id = 1;
+//    string actor_system = 2;
+//    string content = 3;
+//}
+//
+//message StableRunMsgWithRespToLocalResponse {
+//    string content = 1;
+//}
+
+
+service TestConsole {
+    // 控制台发出消息，让节点在本地执行，不需要actor有响应，但控制台消息本身需要有响应
+    rpc LocalRunRequest(LocalRun) returns (LocalRunResponse);
+}

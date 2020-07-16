@@ -45,7 +45,7 @@ func (service *remoteServiceImpl) Request(ctx context.Context, req *pb.RequestMs
 	if req.IsRespond {
 		// 重定向信息中，告知目前节点是处于不稳定状态，在这样的状态下，不要再发生路由了
 		// 直接判定是否能执行，不能就返回错误，以避免陷入死循环
-		if req.Redirect.NodeStatus > nodeStatusRunning {
+		if req.Redirect.NodeStatus != nodeStatusRunning {
 			respMsg, err = system.redirectFinalWithAsk(sender.id, target.id, msg)
 		} else {
 			respMsg, err = system.Ask(sender.id, target.id, msg)

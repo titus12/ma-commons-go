@@ -25,7 +25,7 @@ var StatusServiceName = map[int32]string{
 }
 
 // 节点数据
-type nodeData struct {
+type NodeData struct {
 	Addr   string `json:"addr"`   //ip:port
 	Status int32  `json:"status"` // 节点状态
 }
@@ -34,11 +34,11 @@ type nodeData struct {
 type node struct {
 	key      string // 可以认为是节点的唯一标记
 	conn     *grpc.ClientConn
-	data     nodeData
+	data     NodeData
 	isLocal  bool
 	transfer int32
 }
 
-func NewNode(name string, conn *grpc.ClientConn, data nodeData, isLocal bool, transfer int32) *node {
+func NewNode(name string, conn *grpc.ClientConn, data NodeData, isLocal bool, transfer int32) *node {
 	return &node{name, conn, data, isLocal, transfer}
 }
