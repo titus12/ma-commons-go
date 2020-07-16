@@ -2,6 +2,7 @@ package net
 
 import (
 	"encoding/binary"
+	"fmt"
 	"github.com/titus12/ma-commons-go/cryptos"
 	"io"
 	"net"
@@ -14,7 +15,7 @@ import (
 )
 
 type Config struct {
-	Listen                        string
+	Listen                        int
 	ReadDeadline                  time.Duration
 	Sockbuf                       int
 	Udp_sockbuf                   int
@@ -202,7 +203,7 @@ func (serverHandler *serverHandler) ConnectionActive(connection net.Conn) {
 func (serverHandler *serverHandler) StartTcpServer() error {
 	config := serverHandler.config
 	// resolve address & start listening
-	tcpAddr, err := net.ResolveTCPAddr("tcp4", config.Listen)
+	tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf(":%d", config.Listen))
 	if err != nil {
 		return err
 	}
@@ -231,7 +232,7 @@ func (serverHandler *serverHandler) StartTcpServer() error {
 
 func (serverHandler *serverHandler) StartUdpServer() error {
 	config := serverHandler.config
-	l, err := kcp.Listen(config.Listen)
+	l, err := kcp.Listen(fmt.Sprintf(":%d", config.Listen))
 	if err != nil {
 		return err
 	}

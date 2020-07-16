@@ -170,6 +170,10 @@ func (s *Service) checkStatus(oldNode *node, newNode *node) error {
 			//事件 克隆 稳定环 = 不稳定环
 			s.stableConsistent = s.unstableConsistent.Clone()
 			return nil
+		} else if oldStatus == ServiceStatusNone {
+			s.stableConsistent.Add(cons.NewNodeKey(newNode.key, 1))
+			s.unstableConsistent = s.stableConsistent.Clone()
+			return nil
 		}
 	case ServiceStatusStopping:
 		//事件 - 不稳定环删节点
