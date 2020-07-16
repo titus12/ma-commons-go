@@ -303,10 +303,16 @@ func (p *servicePool) makeWork(queueSize int) (*work, func()) {
 	}
 
 	job := func() {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Errorf("makeWork job err %v", err)
+			}
+		}()
 		for job := range w.jobGroup {
 			key := string(job.Key)
-			if p.upsertNode(key, job.Value) {
+			if !p.upsertNode(key, job.Value) {
 				w.jobGroup <- job
+				time.Sleep(time.Second)
 				continue
 			}
 			w.resultGroup <- key
@@ -314,7 +320,6 @@ func (p *servicePool) makeWork(queueSize int) (*work, func()) {
 	}
 
 	w.job = job
-
 	return w, func() {
 		close(w.jobGroup)
 		close(w.resultGroup)
