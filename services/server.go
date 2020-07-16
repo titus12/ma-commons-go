@@ -30,6 +30,8 @@ type serverWrapper struct {
 // 接收牵移状态通知的，告知某节点数据牵移完成
 func (s *server) Notify(cxt context.Context, node *gp.Node) (*gp.Result, error) {
 	defer utils.PrintPanicStack()
+	log.Infof("Notify receiving node migration is complete node: %v", node)
+
 	result := &gp.Result{ErrorCode: 0, Error: ""}
 	if err := transfer(node.Name, node.Status); err != nil {
 		result.ErrorCode = 1

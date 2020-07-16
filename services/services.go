@@ -524,7 +524,7 @@ func (p *servicePool) watcher(servicePath string) error {
 	for wresp := range wc {
 		for _, ev := range wresp.Events {
 			func(event *etcdclient.Event) {
-				log.Debugf("watcher %v %v:%v", event.Type, string(event.Kv.Key), event.Kv.Value)
+				log.Debugf("watcher %v %s:%s", event.Type, event.Kv.Key, event.Kv.Value)
 				defer utils.PrintPanicStack()
 				switch event.Type {
 				case etcdclient.EventTypePut:
@@ -588,7 +588,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 	info := &NodeData{}
 	err := json.Unmarshal(value, info)
 	if err != nil {
-		log.Errorf("upsertNode NodeData Parse value:%v, err:%v", string(value), err)
+		log.Errorf("upsertNode NodeData Parse value:%v, err:%v", value, err)
 		return false
 	}
 	if info.Status == ServiceStatusNone {
@@ -604,7 +604,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 			log.Warnf("upsertNode local %v - %v err %v", key, string(value), err)
 			return true
 		}
-		log.Infof("upsertNode local %v - %v", key, string(value))
+		log.Infof("upsertNode local %s - %s", key, value)
 	} else {
 		ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 		conn, err := grpc.DialContext(ctx, info.Addr, grpc.WithBlock(), grpc.WithInsecure())
@@ -613,33 +613,44 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 			log.Errorf("upsertNode Service connect %v - %v, Error: %v", key, string(value), err)
 			return false
 		}
+
+		log.Infof("upsertNode grpc connect succeed remote node: %v, grpcconn: %v", info, conn)
+
 		node := NewNode(nodeName, conn, *info, false, 0)
 		err = service.upsertNode(node)
 		if err != nil {
-			log.Errorf("upsertNode remote %v - %v err %v", key, string(value), err)
+			log.Errorf("upsertNode remote %v - %s err %v", key, value, err)
 			return false
 		}
-		log.Infof("upsertNode remote %v - %v", key, value)
+		log.Infof("upsertNode remote %s - %s", key, value)
 		if node.data.Status == ServiceStatusPending {
+			// todo: callback里给的也是远程节点的信息，这里是要给当前节点的，还是远程的?
 			err := service.callback(nodeName, node.data.Status)
-			sendNode := &gp.Node{Name: key, Status: TransferStatusSucc}
+
+			//todo: 没改之前的代码 sendNode := &gp.Node{Name: key, Status: TransferStatusSucc}
+			sendNode := &gp.Node{Name: p.selfNodeName, Status: TransferStatusSucc}
+			//sendNode := &gp.Node{Name: key, Status: TransferStatusSucc}
+
 			if err != nil {
+				// todo: 错了后，不用通知吗？
 				sendNode.Status = TransferStatusFail
-				log.Errorf("upsertNode remote callback %v - %v err %v", key, string(value), err)
+				log.Errorf("upsertNode remote callback %v - %v err %v", key, value, err)
 			}
 			for {
 				ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 				cli := gp.NewNodeServiceClient(conn)
+
+				log.Infof("upsertNode Notifies the remote node that the current node migration is successful sendNode: %v", sendNode)
 				result, err := cli.Notify(ctx, sendNode)
 				cancel()
 				if err != nil {
-					log.Errorf("upsertNode remote Notify %v - %v err %v", key, string(value), err)
+					log.Errorf("upsertNode remote Notify %s - %s err %v", key, value, err)
 				} else {
 					if result.ErrorCode == 0 {
-						log.Infof("upsertNode remote Notify %v - %v succ", key, string(value))
+						log.Infof("upsertNode remote Notify %s - %s succ", key, value)
 						break
 					} else {
-						log.Errorf("upsertNode remote Notify %v - %v receive result %v", key, string(value), result)
+						log.Errorf("upsertNode remote Notify %s - %s receive result %v", key, value, result)
 					}
 				}
 				time.Sleep(time.Second * 1)

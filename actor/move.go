@@ -3,8 +3,6 @@ package actor
 import (
 	"time"
 
-	"google.golang.org/grpc"
-
 	"github.com/sirupsen/logrus"
 )
 
@@ -12,8 +10,6 @@ func (s *System) move(nodeKey string, nodeStatus int32) error {
 	if nodeStatus == nodeStatusRunning {
 		return nil
 	}
-
-	grpc.WithChainUnaryInterceptor()
 
 	logrus.Warnf("开始移动actor.... nodeKey: %s, nodeStatus: %d", nodeKey, nodeStatus)
 	ids := s.Ids()

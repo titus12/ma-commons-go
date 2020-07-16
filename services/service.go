@@ -61,6 +61,9 @@ func (s *Service) isCompleted(exclude string) int32 {
 
 // 给节点设置牵移状态
 func (s *Service) transfer(nodeName string, status int32) bool {
+
+	log.Infof("transfer nodeName: %s => status: %d", nodeName, status)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, v := range s.nodes {
