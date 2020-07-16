@@ -28,13 +28,14 @@ require (
 	github.com/json-iterator/go v1.1.8 // indirect
 	github.com/klauspost/cpuid v1.2.1 // indirect
 	github.com/klauspost/reedsolomon v1.9.3 // indirect
-	github.com/lestrrat-go/file-rotatelogs v2.3.0+incompatible
+	github.com/lestrrat-go/file-rotatelogs v2.3.0+incompatible // indirect
 	github.com/lestrrat-go/strftime v1.0.1 // indirect
 	github.com/onsi/ginkgo v1.12.0 // indirect
 	github.com/onsi/gomega v1.9.0 // indirect
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.2.1 // indirect
 	github.com/prometheus/common v0.7.0
+	github.com/satori/go.uuid v1.2.0
 	github.com/sirupsen/logrus v1.5.0
 	github.com/soheilhy/cmux v0.1.4 // indirect
 	github.com/tebeka/strftime v0.1.4 // indirect
