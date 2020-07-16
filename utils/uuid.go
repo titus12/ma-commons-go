@@ -7,23 +7,23 @@ import (
 	uuid "github.com/satori/go.uuid"
 )
 
-func genuuid() []byte {
+func genUuid() []byte {
 	u := uuid.NewV4()
 	return u.Bytes()
 }
 
 // 生成uuid
 func GenUuid() string {
-	byteuuid := genuuid()
+	byteuuid := genUuid()
 	buf := make([]byte, len(byteuuid)*2)
-	hex.Encode(buf, genuuid())
+	hex.Encode(buf, genUuid())
 	return string(buf)
 }
 
 //
 // 生成uuid，给出16位=>8个字节的字节数组
 func GenUuidWithByteArray16() []byte {
-	uuid := genuuid()
+	uuid := genUuid()
 	uuid = Md5WithByteArray(uuid)
 	uuid = uuid[4:12]
 	return uuid
@@ -47,7 +47,7 @@ func GenUuidWithHexString16() string {
 }
 
 func GenUuidWithByteArray32() []byte {
-	uuid := genuuid()
+	uuid := genUuid()
 	return uuid
 }
 
