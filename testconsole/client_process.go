@@ -19,9 +19,7 @@ import (
 
 	"github.com/titus12/ma-commons-go/utils"
 
-
 	"github.com/golang/protobuf/proto"
-
 	"github.com/titus12/ma-commons-go/testconsole/testmsg"
 	"google.golang.org/grpc"
 )

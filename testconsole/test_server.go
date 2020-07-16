@@ -3,7 +3,6 @@ package testconsole
 import (
 	"context"
 	"fmt"
-	"github.com/titus12/ma-commons-go/setting"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/titus12/ma-commons-go/actor"
 	"github.com/titus12/ma-commons-go/services"
+	"github.com/titus12/ma-commons-go/setting"
 	"github.com/titus12/ma-commons-go/testconsole/testmsg"
 )
 

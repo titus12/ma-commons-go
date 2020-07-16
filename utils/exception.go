@@ -1,31 +1,8 @@
 package utils
 
 import (
-	"fmt"
-
-	"github.com/sirupsen/logrus"
-
 	"reflect"
-	"runtime"
-	"strings"
 )
-
-func PrintStackTrace(err interface{}) {
-	plog.WithFields(logrus.Fields{
-		"errMsg": err,
-	}).Error("")
-
-	i := 0
-	funcName, file, line, ok := runtime.Caller(i)
-	for ok {
-		name := runtime.FuncForPC(funcName).Name()
-		if !strings.HasPrefix(name, "runtime.") && !strings.Contains(name, "PrintStackTrace") {
-			plog.Error(fmt.Sprintf("frame %v:[func:%v,file:%v,line:%v]", i, runtime.FuncForPC(funcName).Name(), file, line))
-		}
-		i++
-		funcName, file, line, ok = runtime.Caller(i)
-	}
-}
 
 type CatchHandler interface {
 	Catch(err interface{}, handler func(err interface{})) CatchHandler
