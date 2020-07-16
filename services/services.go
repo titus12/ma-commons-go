@@ -614,7 +614,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 			return false
 		}
 
-		log.Infof("upsertNode grpc connect succeed remote node: %v, grpcconn: %v", info, conn)
+		log.Infof("upsertNode grpc connect succeed remote node grpcconn: %v", info)
 
 		node := NewNode(nodeName, conn, *info, false, 0)
 		err = service.upsertNode(node)
@@ -628,7 +628,8 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 			err := service.callback(nodeName, node.data.Status)
 
 			//todo: 没改之前的代码 sendNode := &gp.Node{Name: key, Status: TransferStatusSucc}
-			sendNode := &gp.Node{Name: p.selfNodeName, Status: TransferStatusSucc}
+			selfNodePath := fmt.Sprintf("%s/%s/%s", p.root, p.selfServiceName, p.selfNodeName)
+			sendNode := &gp.Node{Name: selfNodePath, Status: TransferStatusSucc}
 			//sendNode := &gp.Node{Name: key, Status: TransferStatusSucc}
 
 			if err != nil {
