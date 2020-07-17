@@ -40,3 +40,16 @@ func InitLogWithFile() {
 	}
 	logrus.AddHook(newFileHook(writer))
 }
+
+func InitLogWithELK(kafkaBrokers []string, appName, topic string) {
+	if len(kafkaBrokers) == 0 {
+		logrus.Panic("日志初始化失败....没有提供kafka地址")
+	}
+	hook, err := newKafkaHook(kafkaBrokers, appName, topic)
+	if err != nil {
+		logrus.WithError(err).Panic("日志初始化失败....初始化kafka失败....")
+	}
+
+	logrus.SetFormatter(&logrus.JSONFormatter{})
+	logrus.AddHook(hook)
+}
