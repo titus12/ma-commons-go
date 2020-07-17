@@ -353,7 +353,7 @@ func (p *servicePool) startClient(ctx context.Context) error {
 }
 
 // 开启一个服务的服务器
-func (p *servicePool) startServer(ctx context.Context, port int, startup func(*grpc.Server, *Service) error) {
+func (p *servicePool) startServer(ctx context.Context, port int, startup func(*grpc.Server, *Service) error) *serverWrapper {
 	// TODO: 这里会有问题。下面参数没有具体ip地址，只有端口
 	sw, err := NewServerWrapper(fmt.Sprintf(":%d", port))
 	if err != nil {
@@ -369,16 +369,15 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	}
 	defer close()
 
-	log.Debugf("startServer on etcd ready lock service serviceName: %s", p.selfServiceName)
+	log.Debugf("startServer ready lock service serviceName: %s on etcd", p.selfServiceName)
 	err = mtx.Lock(context.Background())
 	if err != nil {
 		log.Fatalf("startServer lock Service err %v", err)
 	}
 
-	log.Debugf("startServer on etcd begin lock service serviceName: %s", p.selfServiceName)
-
+	log.Debugf("startServer begin lock service serviceName: %s on etcd", p.selfServiceName)
 	defer func() {
-		log.Debugf("startServer on etcd unlock service serviceName: %s", p.selfServiceName)
+		log.Debugf("startServer unlock service serviceName: %s on etcd", p.selfServiceName)
 		mtx.Unlock(context.Background())
 	}()
 
@@ -458,7 +457,7 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	}
 StartServerDone:
 	log.Infof("startServer node %v startup completed", p.selfNodeName)
-	sw.Wait()
+	return sw
 }
 
 // 停止一个节点
@@ -874,7 +873,8 @@ func SyncStartClient(ctx context.Context) error {
 }
 
 func SyncStartService(ctx context.Context, port int, startup func(*grpc.Server, *Service) error) {
-	_defaultPool.startServer(ctx, port, startup)
+	sw := _defaultPool.startServer(ctx, port, startup)
+	sw.Wait()
 }
 
 func transfer(key string, status int32) error {
