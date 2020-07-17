@@ -14,7 +14,7 @@ import (
 )
 
 const DefaultQueueSize = 1024                 //默认每个actor的队列长度
-const DefaultRequestTimeout = 5 * time.Second //默认的请求超时时间
+const DefaultRequestTimeout = 10 * time.Second //默认的请求超时时间
 
 const (
 	Runnable = iota
@@ -329,7 +329,7 @@ func workflow(system *System, target int64, net Response, localProcess func(),
 			// todo: 这里是否要加入ref.stop()
 			//ref.Stop()
 			if err := ref.WaitDestroyed(10 * time.Second); err != nil {
-				logrus.WithError(err).Errorf("workflow: 等待actor催费错误, target: %d", target)
+				logrus.WithError(err).Errorf("workflow: 等待actor摧毁错误, target: %d", target)
 				errHandler(err)
 			} else {
 				// 重定向

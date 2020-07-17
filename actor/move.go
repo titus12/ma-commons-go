@@ -26,11 +26,6 @@ func (s *System) move(nodeKey string, nodeStatus int32) error {
 		sort.Sort(ItemId(ids))
 	}
 	for _, id := range ids {
-		if setting.Test {
-			// todo: 模拟延迟
-			time.Sleep(5 * time.Second)
-		}
-
 		local, nk, ns, _, err := s.cluster.IsLocalWithUnstableRing(id)
 		if err != nil {
 			logrus.WithError(err).Errorf("计算不稳定稳错误...actor: %d, nodeKey: %s, nodeStatus: %d", id, nodeKey, nodeStatus)
@@ -38,6 +33,10 @@ func (s *System) move(nodeKey string, nodeStatus int32) error {
 		}
 		if !local {
 			logrus.Debugf("move actorid: %d, nk: %s, ns: %d 开始牵移", id, nk, ns)
+			if setting.Test {
+				// todo: 模拟延迟
+				time.Sleep(5 * time.Second)
+			}
 
 			ref := s.Ref(id)
 			if ref == nil {
