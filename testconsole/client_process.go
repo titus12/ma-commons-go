@@ -52,10 +52,7 @@ const etcdRoot = "/root/backend/gameser"
 // 2.确保集群当前一定是超过1个以上的节点，并且有一个节点是处于Pending状态下
 func LocalRunPendingRequest(msg proto.Message) {
 	nodes := GetAllNodeData(etcdRoot)
-	if len(nodes) >= 0 {
-		fmt.Println("集群中不存在节点....至少需要2个或2个以上的节点....")
-		return
-	}
+	fmt.Println("节点数量:", len(nodes))
 
 	if !MustOnePendingNode(nodes) {
 		fmt.Println("集群中必须要有一个节点处于pending状态")
@@ -300,14 +297,16 @@ func ExecGrpcCall(node *Node, fn func(ctx context.Context, cli testmsg.TestConso
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5 *time.Minute)
 
 	defer conn.Close()
 	defer cancel()
 
 	cli := testmsg.NewTestConsoleClient(conn)
 
+	fmt.Println("GRPC调用开始时间...", time.Now())
 	err = fn(ctx, cli)
+	fmt.Println("GRPC调用结束时间...", time.Now())
 	if err != nil {
 		return err
 	}

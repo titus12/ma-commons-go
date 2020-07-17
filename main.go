@@ -14,11 +14,12 @@ import (
 )
 
 func main() {
+	setting.Initialize()
+
 	wlog.Initialize(logrus.DebugLevel)
 	numCpu := runtime.NumCPU()
 	runtime.GOMAXPROCS(numCpu)
 	logrus.SetLevel(logrus.DebugLevel)
-	setting.Initialize()
 	if setting.TestConsole {
 		console := testconsole.NewConsole()
 		console.Command("LocalRun", testconsole.LocalRunRequest)

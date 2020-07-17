@@ -451,7 +451,7 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 				}
 			}
 		case TransferStatusNone:
-			log.Debugf("startServer waiting for transfer")
+			//log.Debugf("startServer waiting for transfer")
 		}
 		time.Sleep(100)
 	}
