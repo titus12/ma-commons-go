@@ -812,7 +812,7 @@ func (p *servicePool) newMutex(serviceName string) (*concurrency.Mutex, func(), 
 }
 
 func (p *servicePool) lockDo(serviceName string, f func(string)) error {
-	sess, err := concurrency.NewSession(_defaultPool.client, concurrency.WithTTL(60))
+	sess, err := concurrency.NewSession(_defaultPool.client)
 	if err != nil {
 		return err
 	}
