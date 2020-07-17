@@ -195,6 +195,8 @@ func (proxy *proxyContext) toProxyRequestMsg() (*pb.RequestMsg, error) {
 func (proxy *proxyContext) request() (interface{}, error) {
 	// grpc 向网络请求
 	if proxy.cli != nil {
+		logrus.Debugf("request proxyContext obj in proxy.cli!=nil sender: %v, target: %v, reqmsg: %v", proxy.target, proxy.sender, proxy.reqMsg)
+
 		proxyRequestMsg, err := proxy.toProxyRequestMsg()
 
 		if err != nil {
@@ -205,6 +207,8 @@ func (proxy *proxyContext) request() (interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		logrus.Debugf("request proxyContext obj recv responseMsg: %v", proxyResponseMsg)
 
 		// 不需要响应时，没有返回值
 		if !proxy.IsRespond {
@@ -220,6 +224,8 @@ func (proxy *proxyContext) request() (interface{}, error) {
 		return protoRespMsg, err
 	} else {
 		// 向本地推送消息
+		logrus.Debugf("request proxyContext obj in proxy.cli==nil sender: %v, target: %v, reqmsg: %v", proxy.target, proxy.sender, proxy.reqMsg)
+
 		system := proxy.system
 		if system == nil {
 			return nil, fmt.Errorf("actor system not exist...systemName=%s", proxy.target.systemName)

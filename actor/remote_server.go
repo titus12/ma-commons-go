@@ -17,7 +17,7 @@ type remoteServiceImpl struct{}
 // todo: actor之前接收远程消息的地方，这里的处理担心会陷入死循环....
 func (service *remoteServiceImpl) Request(ctx context.Context, req *pb.RequestMsg) (resp *pb.ResponseMsg, err error) {
 
-	logrus.Infof("REMOTE: 开始执行请求......%v", req)
+	logrus.Debugf("REMOTE: 开始执行请求......%v", req)
 
 	sender := &Pid{id: req.Sender.Id, systemName: req.Sender.System}
 	target := &Pid{id: req.Target.Id, systemName: req.Target.System}
@@ -51,7 +51,7 @@ func (service *remoteServiceImpl) Request(ctx context.Context, req *pb.RequestMs
 			respMsg, err = system.Ask(sender.id, target.id, msg)
 		}
 	} else {
-		if req.Redirect.NodeStatus > 0 {
+		if req.Redirect.NodeStatus != nodeStatusRunning {
 			err = system.redirectFinalWithTell(sender.id, target.id, msg)
 		} else {
 			err = system.Tell(sender.id, target.id, msg)

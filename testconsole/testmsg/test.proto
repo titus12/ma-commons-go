@@ -16,27 +16,23 @@ message LocalRunResponse {
     uint64 reply_id = 1;        // 根据请求id的回复，一般就是请求id
 }
 
+// 集群处于不稳定状态
+// 控制台拿到node_key所代表的节点
+// 1.确保node_key在集群中是running状态
+// 2.确保集群当前一定是超过1个以上的节点，并且有一个节点是处于Pending状态下
+message LocalRunPending {
+    uint64 req_id = 1;          // 请求id(唯一，最后用于收集日志)
+    int64 sender_id = 2;        // 节点上发送者id
+    int64 target_id = 3;        // 节点上目标id
 
-
-
-
-
-// 稳定的执行消息， 控制台根据玩家id, 通过与gameser一样的一致性哈希算法
-// 直接命中节点，并向节点发送消息，让节点在本地发送请求响应消息，请求响应都是是本地节点完成
-// 然后返回结果
-//message StableRunMsgWithRespToLocal {
-//
-//    int64 actor_id = 1;
-//    string actor_system = 2;
-//    string content = 3;
-//}
-//
-//message StableRunMsgWithRespToLocalResponse {
-//    string content = 1;
-//}
+    string node_key = 4;    // 要把消息发到哪个节点上，节点的状态应该是running的
+}
 
 
 service TestConsole {
     // 控制台发出消息，让节点在本地执行，不需要actor有响应，但控制台消息本身需要有响应
     rpc LocalRunRequest(LocalRun) returns (LocalRunResponse);
+
+    // 控制台发出消息, 节点可能在本地执行，可能转发，不需要actor有响应，但控制台消息本身需要有响应
+    rpc LocalRunPendingRequest(LocalRunPending) returns (LocalRunResponse);
 }
