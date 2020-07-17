@@ -363,12 +363,16 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	defer cancel()
 
 	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
-	mtx, err := p.newMutex(p.selfServiceName)
+	mtx, close, err := p.newMutex(p.selfServiceName)
+	if err != nil {
+		log.Fatalf("startServer newMutex Service err %v", err)
+	}
+	defer close()
+	err = mtx.Lock(context.Background())
 	if err != nil {
 		log.Fatalf("startServer lock Service err %v", err)
 	}
-	mtx.Lock(context.TODO())
-	defer mtx.Unlock(context.TODO())
+	defer mtx.Unlock(context.Background())
 
 	if err != nil {
 		log.Fatalf("startServer lock err:%v", err)
@@ -794,18 +798,20 @@ func (p *servicePool) retryConn(key string) (del bool) {
 	return
 }
 
-func (p *servicePool) newMutex(serviceName string) (*concurrency.Mutex, error) {
+func (p *servicePool) newMutex(serviceName string) (*concurrency.Mutex, func(), error) {
 	sess, err := concurrency.NewSession(_defaultPool.client)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	defer sess.Close()
-	m1 := concurrency.NewMutex(sess, "/lock-"+serviceName)
-	return m1, nil
+	m1 := concurrency.NewMutex(sess, "/root/lock-"+serviceName)
+	closeFn := func() {
+		sess.Close()
+	}
+	return m1, closeFn, nil
 }
 
 func (p *servicePool) lockDo(serviceName string, f func(string)) error {
-	sess, err := concurrency.NewSession(_defaultPool.client)
+	sess, err := concurrency.NewSession(_defaultPool.client, concurrency.WithTTL(60))
 	if err != nil {
 		return err
 	}
