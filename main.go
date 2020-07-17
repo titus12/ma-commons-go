@@ -14,11 +14,12 @@ import (
 )
 
 func main() {
-	wlog.Initialize(logrus.DebugLevel)
+	setting.Initialize()
+	wlog.Initialize(logrus.DebugLevel, wlog.WithELK([]string{"127.0.0.1:9092"}, setting.Key, "game-log"))
 	numCpu := runtime.NumCPU()
 	runtime.GOMAXPROCS(numCpu)
 	logrus.SetLevel(logrus.DebugLevel)
-	setting.Initialize()
+
 	if setting.TestConsole {
 		console := testconsole.NewConsole()
 		console.Command("LocalRun", testconsole.LocalRunRequest)

@@ -1,12 +1,19 @@
 package actor
 
 import (
+	"sort"
 	"time"
 
 	"github.com/titus12/ma-commons-go/setting"
 
 	"github.com/sirupsen/logrus"
 )
+
+type ItemId []int64
+
+func (a ItemId) Len() int           { return len(a) }
+func (a ItemId) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ItemId) Less(i, j int) bool { return a[i] < a[j] }
 
 func (s *System) move(nodeKey string, nodeStatus int32) error {
 	if nodeStatus == nodeStatusRunning {
@@ -15,7 +22,9 @@ func (s *System) move(nodeKey string, nodeStatus int32) error {
 
 	logrus.Warnf("开始移动actor.... nodeKey: %s, nodeStatus: %d", nodeKey, nodeStatus)
 	ids := s.Ids()
-
+	if setting.Test {
+		sort.Sort(ItemId(ids))
+	}
 	for _, id := range ids {
 		if setting.Test {
 			// todo: 模拟延迟

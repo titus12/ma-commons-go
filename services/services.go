@@ -426,6 +426,7 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 
 	//loop check to Status ServiceStatusRunning
 	log.Infof("startServer start to check whether nodes are ready")
+	now := time.Now()
 	status := node.data.Status
 	for {
 		transfer := service.isCompleted(p.selfNodeName)
@@ -451,7 +452,10 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 				}
 			}
 		case TransferStatusNone:
-			log.Debugf("startServer waiting for transfer")
+			if time.Now().Sub(now).Seconds() >= 2 {
+				now = time.Now()
+				log.Debugf("startServer waiting for transfer")
+			}
 		}
 		time.Sleep(100)
 	}
