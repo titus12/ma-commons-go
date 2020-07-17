@@ -3,12 +3,6 @@ package services
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
-	"time"
-
 	etcdclient "github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/clientv3/concurrency"
 	"github.com/coreos/etcd/mvcc/mvccpb"
@@ -16,7 +10,13 @@ import (
 	"github.com/titus12/ma-commons-go/utils/ctxfunc"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+)
+import (
 	gp "github.com/titus12/ma-commons-go/services/pb-grpc"
 	"github.com/titus12/ma-commons-go/utils"
 )
@@ -207,7 +207,7 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 				} else {
 					retryNum = DefaultNetRetries
 				}
-				//log.Debugf("leaseListenFn Lease continue succeed")
+				log.Debugf("leaseListenFn Lease continue succeed")
 			}
 			time.Sleep((DefaultLeaseTTL >> 1) * time.Second)
 		}
@@ -363,23 +363,17 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	defer cancel()
 
 	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
-
-	// TODO: 调用分布式锁有问题，先暂时屏蔽掉。要不后继无法测试
-	//mtx, err := p.newMutex(p.selfServiceName)
-	//if err != nil {
-	//	log.Fatalf("startServer newMutex err %v", err)
-	//}
-	//
-	//log.Infof("startServer launch node...on etcd wait lock serviceName: %s, nodeName: %s", p.selfServiceName, p.selfNodeName)
-	//err = mtx.Lock(context.TODO())
-	//if err != nil {
-	//	log.Fatalf("startServer mtx.Lock err %v", err)
-	//}
-	//
-	//// todo: 如果mtx.Unlock调用失败后怎么办?
-	//defer mtx.Unlock(context.TODO())
-
-	log.Infof("startServer launch node enter into etcd lock serviceName: %s, nodeName: %s", p.selfServiceName, p.selfNodeName)
+	mtx, close, err := p.newMutex(p.selfServiceName)
+	if err != nil {
+		log.Fatalf("startServer newMutex Service err %v", err)
+	}
+	defer close()
+	err = mtx.Lock(context.Background())
+	if err != nil {
+		log.Fatalf("startServer lock Service err %v", err)
+	}
+	mtx.Lock(context.TODO())
+	defer mtx.Unlock(context.TODO())
 
 	if err != nil {
 		log.Fatalf("startServer lock err:%v", err)
@@ -648,8 +642,14 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 				log.Errorf("upsertNode remote callback %v - %v err %v", key, value, err)
 			}
 			for {
+				service := p.services[servicePath]
+				remoteNode, err := service.getNode(node.key)
+				if err != nil {
+					log.Errorf("upsertNode remote Notify %s - %s err %v", key, value, err)
+					break
+				}
 				ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
-				cli := gp.NewNodeServiceClient(conn)
+				cli := gp.NewNodeServiceClient(remoteNode.conn)
 
 				log.Infof("upsertNode Notifies the remote node that the current node migration is successful sendNode: %v", sendNode)
 				result, err := cli.Notify(ctx, sendNode)
@@ -805,14 +805,16 @@ func (p *servicePool) retryConn(key string) (del bool) {
 	return
 }
 
-func (p *servicePool) newMutex(serviceName string) (*concurrency.Mutex, error) {
+func (p *servicePool) newMutex(serviceName string) (*concurrency.Mutex, func(), error) {
 	sess, err := concurrency.NewSession(_defaultPool.client)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	defer sess.Close()
-	m1 := concurrency.NewMutex(sess, "/lock-"+serviceName)
-	return m1, nil
+	m1 := concurrency.NewMutex(sess, "/root/lock-"+serviceName)
+	closeFn := func() {
+		sess.Close()
+	}
+	return m1, closeFn, nil
 }
 
 func (p *servicePool) lockDo(serviceName string, f func(string)) error {
