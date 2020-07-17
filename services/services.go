@@ -372,8 +372,7 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	if err != nil {
 		log.Fatalf("startServer lock Service err %v", err)
 	}
-	mtx.Lock(context.TODO())
-	defer mtx.Unlock(context.TODO())
+	defer mtx.Unlock(context.Background())
 
 	if err != nil {
 		log.Fatalf("startServer lock err:%v", err)
@@ -806,7 +805,7 @@ func (p *servicePool) retryConn(key string) (del bool) {
 }
 
 func (p *servicePool) newMutex(serviceName string) (*concurrency.Mutex, func(), error) {
-	sess, err := concurrency.NewSession(_defaultPool.client)
+	sess, err := concurrency.NewSession(_defaultPool.client, concurrency.WithTTL(15))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -818,7 +817,7 @@ func (p *servicePool) newMutex(serviceName string) (*concurrency.Mutex, func(), 
 }
 
 func (p *servicePool) lockDo(serviceName string, f func(string)) error {
-	sess, err := concurrency.NewSession(_defaultPool.client)
+	sess, err := concurrency.NewSession(_defaultPool.client, concurrency.WithTTL(15))
 	if err != nil {
 		return err
 	}
