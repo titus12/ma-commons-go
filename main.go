@@ -3,9 +3,7 @@ package main
 import (
 	"runtime"
 
-	"github.com/titus12/ma-commons-go/logwrap"
-
-
+	"github.com/titus12/ma-commons-go/wlog"
 
 	"github.com/sirupsen/logrus"
 
@@ -13,11 +11,10 @@ import (
 	"github.com/titus12/ma-commons-go/testconsole"
 
 	_ "github.com/titus12/ma-commons-go/testconsole/testmsg"
-
 )
 
 func main() {
-	logwrap.InitLogWithFile()
+	wlog.Initialize(logrus.DebugLevel)
 	numCpu := runtime.NumCPU()
 	runtime.GOMAXPROCS(numCpu)
 	logrus.SetLevel(logrus.DebugLevel)

@@ -1,8 +1,10 @@
-package logwrap
+package wlog
 
 import (
 	"fmt"
 	"strings"
+
+	"github.com/titus12/ma-commons-go/utils"
 
 	"github.com/sirupsen/logrus"
 
@@ -10,8 +12,11 @@ import (
 )
 
 type kafkaHook struct {
-	appName       string
-	topic         string
+	appName string
+	topic   string
+
+	formatter logrus.Formatter
+
 	asyncProducer sarama.AsyncProducer
 }
 
@@ -30,7 +35,12 @@ func newKafkaHook(addrs []string, appName, topic string) (*kafkaHook, error) {
 		}
 	}()
 
-	return &kafkaHook{asyncProducer: producer, appName: appName, topic: topic}, nil
+	return &kafkaHook{
+		asyncProducer: producer,
+		appName:       appName,
+		topic:         topic,
+		formatter:     &logrus.JSONFormatter{},
+	}, nil
 }
 
 func (hook *kafkaHook) Fire(entry *logrus.Entry) error {
@@ -38,11 +48,14 @@ func (hook *kafkaHook) Fire(entry *logrus.Entry) error {
 	entry.Data["app"] = hook.appName
 	entry.Data["file"] = file
 	entry.Data["line"] = line
-	message, err := entry.String()
+
+	message, err := hook.formatter.Format(entry)
+
+	str := utils.BytesToString(message)
 	if err != nil {
 		return err
 	}
-	hook.asyncProducer.Input() <- &sarama.ProducerMessage{Topic: hook.topic, Value: sarama.StringEncoder(strings.TrimSpace(message))}
+	hook.asyncProducer.Input() <- &sarama.ProducerMessage{Topic: hook.topic, Value: sarama.StringEncoder(strings.TrimSpace(str))}
 	return nil
 }
 

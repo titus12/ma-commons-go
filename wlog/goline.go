@@ -1,4 +1,4 @@
-package logwrap
+package wlog
 
 import (
 	"runtime"
