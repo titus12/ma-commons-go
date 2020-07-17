@@ -304,6 +304,7 @@ func workflow(system *System, target int64, net Response, localProcess func(),
 		}
 		if !local {
 			// 重定向
+			logrus.Debugf("workflow StableRing actor(%d) redirect to %s[status=%d]", target, key, status)
 			redirect(&pb.RedirectInfo{NodeKey: key, NodeStatus: status}, conn)
 			return
 		}
@@ -322,6 +323,7 @@ func workflow(system *System, target int64, net Response, localProcess func(),
 		ref := system.Ref(target)
 		if ref == nil {
 			// 重定向
+			logrus.Debugf("workflow UnstableRing(cond ref is null) actor(%d) redirect to %s[status=%d]", target, key, status)
 			redirect(&pb.RedirectInfo{NodeKey: key, NodeStatus: status}, conn)
 		} else {
 			// todo: 这里是否要加入ref.stop()
@@ -331,6 +333,7 @@ func workflow(system *System, target int64, net Response, localProcess func(),
 				errHandler(err)
 			} else {
 				// 重定向
+				logrus.Debugf("workflow UnstableRing(cond ref to stop) actor(%d) redirect to %s[status=%d]", target, key, status)
 				redirect(&pb.RedirectInfo{NodeKey: key, NodeStatus: status}, conn)
 			}
 		}
@@ -339,6 +342,7 @@ func workflow(system *System, target int64, net Response, localProcess func(),
 	if status != nodeStatusStopping {
 		if local {
 			// 本地处理
+			logrus.Debugf("workflow localProcess with node status is not stopping, nodeKey: %s", key)
 			localProcess()
 			return
 		}
@@ -415,10 +419,12 @@ func (system *System) tellWithContext(ctx Context) (err error) {
 func (system *System) Tell(sender, target int64, msg interface{}) error {
 	switch v := msg.(type) {
 	case Context:
+		logrus.Debugf("Tell msg is Context sender: %d, target: %d, msg: %v", sender, target, msg)
 		return system.tellWithContext(v)
 	case ProcessMsgFunc:
 		return errors.New("nonsupport ProcessMsgFunc type, need Ref type")
 	default:
+		logrus.Debugf("Tell ctx is defaultContext sender: %d, target: %d, msg: %v", sender, target, msg)
 		ctx := newDefaultContext(system.NewPid(sender), system.NewPid(target), system, msg, nil)
 		return system.tellWithContext(ctx)
 	}
@@ -431,12 +437,14 @@ func redirectFinalWorkflow(system *System, target int64, fn func(), errHandler f
 	defer system.mu.RUnlock()
 
 	// 在新环上计算目标
-	local, _, _, _, err := system.cluster.IsLocalWithUnstableRing(target)
+	local, nodeKey, nodeStatus, _, err := system.cluster.IsLocalWithUnstableRing(target)
 	if err != nil {
 		logrus.WithError(err).Errorf("redirectFinalWorkflow: 计算不稳定环错误, target: %d", target)
 		errHandler(err)
 		return
 	}
+
+	logrus.Debugf("redirectFinalWorkflow local: %t, nodeKey: %s, nodeStatus: %d", local, nodeKey, nodeStatus)
 
 	if local {
 		fn()

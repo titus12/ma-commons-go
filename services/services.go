@@ -363,23 +363,23 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	defer cancel()
 
 	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
-	mtx, err := p.newMutex(p.selfServiceName)
-	if err != nil {
-		log.Fatalf("startServer newMutex err %v", err)
-	}
 
-	log.Infof("startServer launch node...on etcd wait lock serviceName: %s, nodeName: %s", p.selfServiceName, p.selfNodeName)
-	err = mtx.Lock(context.TODO())
-	if err != nil {
-		log.Fatalf("startServer mtx.Lock err %v", err)
-	}
-
-	// todo: 如果mtx.Unlock调用失败后怎么办?
-	defer mtx.Unlock(context.TODO())
+	// TODO: 调用分布式锁有问题，先暂时屏蔽掉。要不后继无法测试
+	//mtx, err := p.newMutex(p.selfServiceName)
+	//if err != nil {
+	//	log.Fatalf("startServer newMutex err %v", err)
+	//}
+	//
+	//log.Infof("startServer launch node...on etcd wait lock serviceName: %s, nodeName: %s", p.selfServiceName, p.selfNodeName)
+	//err = mtx.Lock(context.TODO())
+	//if err != nil {
+	//	log.Fatalf("startServer mtx.Lock err %v", err)
+	//}
+	//
+	//// todo: 如果mtx.Unlock调用失败后怎么办?
+	//defer mtx.Unlock(context.TODO())
 
 	log.Infof("startServer launch node enter into etcd lock serviceName: %s, nodeName: %s", p.selfServiceName, p.selfNodeName)
-
-	time.Sleep(1 * time.Minute)
 
 	if err != nil {
 		log.Fatalf("startServer lock err:%v", err)

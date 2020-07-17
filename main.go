@@ -22,6 +22,7 @@ func main() {
 	if setting.TestConsole {
 		console := testconsole.NewConsole()
 		console.Command("LocalRun", testconsole.LocalRunRequest)
+		console.Command("LocalRunPending", testconsole.LocalRunPendingRequest)
 		console.Run()
 	} else {
 		if setting.Test {

@@ -3,6 +3,8 @@ package actor
 import (
 	"time"
 
+	"github.com/titus12/ma-commons-go/setting"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -15,6 +17,11 @@ func (s *System) move(nodeKey string, nodeStatus int32) error {
 	ids := s.Ids()
 
 	for _, id := range ids {
+		if setting.Test {
+			// todo: 模拟延迟
+			time.Sleep(5 * time.Second)
+		}
+
 		local, nk, ns, _, err := s.cluster.IsLocalWithUnstableRing(id)
 		if err != nil {
 			logrus.WithError(err).Errorf("计算不稳定稳错误...actor: %d, nodeKey: %s, nodeStatus: %d", id, nodeKey, nodeStatus)

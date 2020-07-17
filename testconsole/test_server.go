@@ -44,6 +44,9 @@ func (p *TestPlayer) OnProcess(ctx actor.Context) {
 	case *testmsg.LocalRun:
 		logrus.Infof("收到Actor处理消息[actorId=%d] testmsg.LocalRun 消息...%v", p.Id, msg)
 		break
+	case *testmsg.LocalRunPending:
+		logrus.Infof("收到Actor处理消息[actorId=%d] testmsg.LocalRunPending 消息...%v", p.Id, msg)
+		break
 	default:
 		logrus.Infof("收到不能处理的消息.....%v", msg)
 	}
