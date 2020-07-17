@@ -3,6 +3,12 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
 	etcdclient "github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/clientv3/concurrency"
 	"github.com/coreos/etcd/mvcc/mvccpb"
@@ -10,13 +16,7 @@ import (
 	"github.com/titus12/ma-commons-go/utils/ctxfunc"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
-	"time"
-)
-import (
+
 	gp "github.com/titus12/ma-commons-go/services/pb-grpc"
 	"github.com/titus12/ma-commons-go/utils"
 )
@@ -207,7 +207,7 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 				} else {
 					retryNum = DefaultNetRetries
 				}
-				log.Debugf("leaseListenFn Lease continue succeed")
+				//log.Debugf("leaseListenFn Lease continue succeed")
 			}
 			time.Sleep((DefaultLeaseTTL >> 1) * time.Second)
 		}
@@ -365,10 +365,21 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
 	mtx, err := p.newMutex(p.selfServiceName)
 	if err != nil {
-		log.Fatalf("startServer lock Service err %v", err)
+		log.Fatalf("startServer newMutex err %v", err)
 	}
-	mtx.Lock(context.TODO())
+
+	log.Infof("startServer launch node...on etcd wait lock serviceName: %s, nodeName: %s", p.selfServiceName, p.selfNodeName)
+	err = mtx.Lock(context.TODO())
+	if err != nil {
+		log.Fatalf("startServer mtx.Lock err %v", err)
+	}
+
+	// todo: 如果mtx.Unlock调用失败后怎么办?
 	defer mtx.Unlock(context.TODO())
+
+	log.Infof("startServer launch node enter into etcd lock serviceName: %s, nodeName: %s", p.selfServiceName, p.selfNodeName)
+
+	time.Sleep(1 * time.Minute)
 
 	if err != nil {
 		log.Fatalf("startServer lock err:%v", err)
