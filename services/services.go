@@ -372,7 +372,8 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	if err != nil {
 		log.Fatalf("startServer lock Service err %v", err)
 	}
-	defer mtx.Unlock(context.Background())
+	mtx.Lock(context.TODO())
+	defer mtx.Unlock(context.TODO())
 
 	if err != nil {
 		log.Fatalf("startServer lock err:%v", err)
