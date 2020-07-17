@@ -642,8 +642,14 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 				log.Errorf("upsertNode remote callback %v - %v err %v", key, value, err)
 			}
 			for {
+				service := p.services[servicePath]
+				remoteNode, err := service.getNode(node.key)
+				if err != nil {
+					log.Errorf("upsertNode remote Notify %s - %s err %v", key, value, err)
+					break
+				}
 				ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
-				cli := gp.NewNodeServiceClient(conn)
+				cli := gp.NewNodeServiceClient(remoteNode.conn)
 
 				log.Infof("upsertNode Notifies the remote node that the current node migration is successful sendNode: %v", sendNode)
 				result, err := cli.Notify(ctx, sendNode)
