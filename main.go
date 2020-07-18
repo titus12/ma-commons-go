@@ -27,6 +27,8 @@ func main() {
 		console.Command("LocalRun", testconsole.LocalRunRequest)
 		console.Command("LocalRunPending", testconsole.LocalRunPendingRequest)
 		console.Command("RunMsg", testconsole.RunMsgRequest)
+		console.Command("mreq", testconsole.MultiMsgRequest)
+		console.Command("query", testconsole.QueryRequest)
 		console.Run()
 	} else {
 		wlog.Initialize(logrus.DebugLevel, wlog.WithELK([]string{"127.0.0.1:9092"}, setting.Key, "game-log"))

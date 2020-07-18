@@ -15,6 +15,8 @@ func (a ItemId) Len() int           { return len(a) }
 func (a ItemId) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ItemId) Less(i, j int) bool { return a[i] < a[j] }
 
+// todo: actor的牵移可以优化，考虑用一个工作池来进行，这样不需要一个一个的牵，然后一个一个的等。
+
 func (s *System) move(nodeKey string, nodeStatus int32) error {
 	if nodeStatus == nodeStatusRunning {
 		return nil
@@ -35,7 +37,7 @@ func (s *System) move(nodeKey string, nodeStatus int32) error {
 			logrus.Debugf("move actorid: %d, nk: %s, ns: %d 开始牵移", id, nk, ns)
 			if setting.Test {
 				// todo: 模拟延迟
-				time.Sleep(2 * time.Second)
+				time.Sleep(1 * time.Second)
 			}
 
 			ref := s.Ref(id)
@@ -58,6 +60,5 @@ func (s *System) move(nodeKey string, nodeStatus int32) error {
 			}
 		}
 	}
-
 	return nil
 }
