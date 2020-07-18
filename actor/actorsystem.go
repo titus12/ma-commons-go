@@ -220,8 +220,13 @@ func WithCluster(cluster ClusterInfo) systemOptFunc {
 
 // 构建一个新的ref,如果存在，则返回原来的，如果不存在，则新建
 func (system *System) NewRef(id int64) (*Ref, bool) {
-	actorCtx, actorCancel := context.WithCancel(system.ctx)
+	val, ok := system.container.Load(id)
+	if ok {
+		return val.(*Ref), ok
+	}
 
+
+	actorCtx, actorCancel := context.WithCancel(system.ctx)
 	handler := system.builder(id)
 	actorRef := newActor(actorCtx, actorCancel, system, id, handler)
 
@@ -231,7 +236,6 @@ func (system *System) NewRef(id int64) (*Ref, bool) {
 		actorRef.cancel()
 		return actual.(*Ref), loaded
 	}
-
 	//不存在，存储到map里了。
 	actorRef.start()
 	return actorRef, false
@@ -284,6 +288,9 @@ func workflow(system *System, target int64, net Response, localProcess func(),
 
 	system.mu.RLock()
 	defer system.mu.RUnlock()
+
+	logrus.Debugf("workflow begin system(%s) target(%d) net(%v) localProcess(%v) redirect(%v) errHandler(%v)",
+		system.name, target, net, localProcess, redirect, errHandler)
 
 	var (
 		local  bool
@@ -385,6 +392,8 @@ func (system *System) TellWithResp(target int64, msg interface{}, net Response) 
 
 // 同一个系统内发生请求操作
 func (system *System) Ask(sender, target int64, msg interface{}) (resp interface{}, err error) {
+	logrus.Debugf("Ask begin sender(%d) target(%d) msg(%v)", sender, target, msg)
+
 	senderPid := system.NewPid(sender)
 	targetPid := system.NewPid(target)
 

@@ -29,10 +29,26 @@ message LocalRunPending {
 }
 
 
+message RunMsg {
+    uint64 req_id = 1;
+    int64 target_id = 2;
+    string node_keys = 3;
+}
+
+message RunMsgResponse {
+    uint64 reply_id = 1;        // 根据请求id的回复，一般就是请求id
+    int64 target_id = 2;
+    string node_keys = 3;
+}
+
 service TestConsole {
     // 控制台发出消息，让节点在本地执行，不需要actor有响应，但控制台消息本身需要有响应
     rpc LocalRunRequest(LocalRun) returns (LocalRunResponse);
 
     // 控制台发出消息, 节点可能在本地执行，可能转发，不需要actor有响应，但控制台消息本身需要有响应
     rpc LocalRunPendingRequest(LocalRunPending) returns (LocalRunResponse);
+
+    // 发送执行消息，控制台只选择running状态的节点发送，并且每到一站都把当前nodename加入，并在最后一次返回
+    rpc RunMsgRequest(RunMsg) returns (RunMsgResponse);
+
 }

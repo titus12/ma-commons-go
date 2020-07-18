@@ -46,9 +46,7 @@ func newKafkaHook(addrs []string, appName, topic string) (*kafkaHook, error) {
 func (hook *kafkaHook) Fire(entry *logrus.Entry) error {
 	file, line := getCallerIgnoringLogMulti(1)
 	entry.Data["app"] = hook.appName
-	entry.Data["file"] = file
-	entry.Data["line"] = line
-
+	entry.Data["line"] = fmt.Sprintf("%s:%d", file, line)
 	message, err := hook.formatter.Format(entry)
 
 	str := utils.BytesToString(message)

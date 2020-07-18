@@ -47,6 +47,17 @@ func (p *TestPlayer) OnProcess(ctx actor.Context) {
 	case *testmsg.LocalRunPending:
 		logrus.Infof("收到Actor处理消息[actorId=%d] testmsg.LocalRunPending 消息...%v", p.Id, msg)
 		break
+	case *testmsg.RunMsg:
+		// 追加当前节点名
+		msg.NodeKeys = fmt.Sprintf("%s,%s", msg.NodeKeys, setting.Key)
+		logrus.Infof("OnProcess receive msg(%v)", msg)
+
+		// 发送响应
+		ctx.Write(&testmsg.RunMsgResponse{
+			ReplyId:              msg.ReqId,
+			TargetId:             msg.TargetId,
+			NodeKeys:             msg.NodeKeys,
+		})
 	default:
 		logrus.Infof("收到不能处理的消息.....%v", msg)
 	}
