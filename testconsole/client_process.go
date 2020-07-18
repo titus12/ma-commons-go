@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,6 +45,47 @@ func (n *Node) String() string {
 }
 
 const etcdRoot = "/root/backend/gameser"
+
+
+// 多消息请求
+func MultiMsgRequest(msgstr interface{}) {
+	str, ok := msgstr.(string)
+	if !ok {
+		fmt.Println("不能正常转换成 string 消息")
+		return
+	}
+
+	strarr := strings.Split(str, " ")
+	if len(strarr) != 2 {
+		fmt.Println("命令格式错误, 需要提供二个数字参数")
+		return
+	}
+
+	sActorId, err := strconv.Atoi(strarr[0])
+	if err != nil {
+		fmt.Println("命令格式错误, 第一个参数需要是数字...", strarr[0])
+		return
+	}
+
+	eActorId, err := strconv.Atoi(strarr[1])
+	if err != nil {
+		fmt.Println("命令格式错误, 第二个参数需要是数字...", strarr[1])
+		return
+	}
+
+	if eActorId <= sActorId {
+		fmt.Println("命令格式错误, 第二个参数不能小于等于第一个参数....")
+		return
+	}
+
+	for id:=sActorId; id<=eActorId; id++ {
+		msg := &testmsg.RunMsg{
+			TargetId:             int64(id),
+		}
+		RunMsgRequest(msg)
+	}
+	
+}
 
 func RunMsgRequest(msg interface{}) {
 	nodes := GetAllNodeDataWithRunning(etcdRoot)
