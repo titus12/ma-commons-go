@@ -1,7 +1,7 @@
 package net
 
 import (
-	"log"
+	log "github.com/sirupsen/logrus"
 	"reflect"
 )
 
