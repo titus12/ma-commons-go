@@ -98,11 +98,10 @@ func Serialize(errorCode int32, message interface{}) ([]byte, error) {
 	}
 
 	writer := Writer()
+	writer.WriteU16(0)
 	writer.WriteS16(hashId)
 	writer.WriteS16(bits)
 	writer.WriteS16(int16(errorCode))
-	//writer.WriteS32(errorId.GetDesc())
-	writer.WriteS32(0)
 	writer.WriteBinary(data)
 	return writer.Data(), nil
 }
