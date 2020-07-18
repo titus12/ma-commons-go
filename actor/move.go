@@ -35,7 +35,7 @@ func (s *System) move(nodeKey string, nodeStatus int32) error {
 			logrus.Debugf("move actorid: %d, nk: %s, ns: %d 开始牵移", id, nk, ns)
 			if setting.Test {
 				// todo: 模拟延迟
-				time.Sleep(5 * time.Second)
+				time.Sleep(2 * time.Second)
 			}
 
 			ref := s.Ref(id)

@@ -18,7 +18,6 @@ import (
 
 	"github.com/titus12/ma-commons-go/utils"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/titus12/ma-commons-go/testconsole/testmsg"
 	"google.golang.org/grpc"
 )
@@ -46,11 +45,45 @@ func (n *Node) String() string {
 
 const etcdRoot = "/root/backend/gameser"
 
+func RunMsgRequest(msg interface{}) {
+	nodes := GetAllNodeDataWithRunning(etcdRoot)
+	fmt.Println("节点数量:", len(nodes))
+
+	logicMsg, ok := msg.(*testmsg.RunMsg)
+	if !ok {
+		fmt.Println("不能正常转换成 testmsg.RunMsg 消息")
+		return
+	}
+
+	if logicMsg.TargetId <= 0 {
+		fmt.Println("目标actor不能为空.....TargetId:", logicMsg.TargetId)
+		return
+	}
+
+	targetNode := HitNodeWithActor(nodes, logicMsg.TargetId)
+
+	err := ExecGrpcCall(targetNode, func(ctx context.Context, cli testmsg.TestConsoleClient) error {
+		logicMsg.ReqId = utils.GenUuidWithUint64()
+
+		resp, err1 := cli.RunMsgRequest(ctx, logicMsg)
+		if err1 == nil {
+			fmt.Println("LocalRunResponse Complete...", resp)
+		}
+		return err1
+	})
+
+	if err != nil {
+		fmt.Println("向远程节点调用错误....", err)
+		return
+	}
+}
+
+
 // 集群处于不稳定状态
 // 控制台拿到node_key所代表的节点
 // 1.确保node_key在集群中是running状态
 // 2.确保集群当前一定是超过1个以上的节点，并且有一个节点是处于Pending状态下
-func LocalRunPendingRequest(msg proto.Message) {
+func LocalRunPendingRequest(msg interface{}) {
 	nodes := GetAllNodeData(etcdRoot)
 	fmt.Println("节点数量:", len(nodes))
 
@@ -103,7 +136,7 @@ func LocalRunPendingRequest(msg proto.Message) {
 	}
 }
 
-func LocalRunRequest(msg proto.Message) {
+func LocalRunRequest(msg interface{}) {
 	// 拿到所有节点
 	nodes := GetAllNodeData(etcdRoot)
 	if len(nodes) <= 0 {
@@ -200,6 +233,38 @@ func GetAllNodeData(etcdRootPath string) (nodes []*Node) {
 	}
 	return
 }
+
+// 获取所有running状态下的节点
+func GetAllNodeDataWithRunning(etcdRootPath string) (nodes []*Node) {
+	cli := GetEtcdCli()
+	resp, err := cli.Get(context.Background(), etcdRootPath, clientv3.WithPrefix())
+	if err != nil {
+		logrus.WithError(err).Panic("在etcd中获取节点数据失败")
+	}
+	for _, ev := range resp.Kvs {
+		keyStr := utils.BytesToString(ev.Key)
+		if keyStr == etcdRootPath {
+			continue
+		}
+		info := &Node{}
+		err := json.Unmarshal(ev.Value, info)
+		if err != nil {
+			logrus.WithError(err).Panic("节点数据不是json")
+		}
+
+		if info.Status <= 0 || len(info.Addr) <= 0 {
+			logrus.Panicf("节点数据不正确 key=%s, val=%s", keyStr, ev.Value)
+		}
+
+		if info.Status == services.ServiceStatusRunning {
+			info.Key = filepath.Base(keyStr)
+			nodes = append(nodes, info)
+		}
+	}
+	return
+}
+
+
 
 // 集群是否稳定
 func IsStable(nodes []*Node) bool {

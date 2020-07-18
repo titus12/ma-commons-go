@@ -3,12 +3,11 @@ package actor
 import (
 	"context"
 	"fmt"
-	"github.com/titus12/ma-commons-go/actor/pb"
-	"github.com/titus12/ma-commons-go/setting"
-
 	"github.com/golang/protobuf/proto"
 	"github.com/sirupsen/logrus"
-
+	"github.com/titus12/ma-commons-go/actor/pb"
+	"github.com/titus12/ma-commons-go/setting"
+	"github.com/titus12/ma-commons-go/testconsole/testmsg"
 	"google.golang.org/grpc"
 )
 
@@ -17,8 +16,6 @@ type remoteServiceImpl struct{}
 // todo: actor之前接收远程消息的地方，这里的处理担心会陷入死循环....
 func (service *remoteServiceImpl) Request(ctx context.Context, req *pb.RequestMsg) (resp *pb.ResponseMsg, err error) {
 	//todo: defer utils.PrintPanicStack()
-
-	logrus.Debugf("REMOTE: 当前节点: %s, 开始执行请求......%v", setting.Key, req)
 
 	var senderId, targetId int64
 	var sender, target *Pid
@@ -42,11 +39,21 @@ func (service *remoteServiceImpl) Request(ctx context.Context, req *pb.RequestMs
 		return
 	}
 
+
+	// 解包消息
 	msg, err := req.Data.UnPack()
 	if err != nil {
 		logrus.Errorf("Request req.Data.UnPack() req(%v) err %v", req, err)
 		return
 	}
+
+	if setting.Test {
+		if runmsg,ok := msg.(*testmsg.RunMsg); ok {
+			runmsg.NodeKeys = fmt.Sprintf("%s,%s", runmsg.NodeKeys, "remote_"+setting.Key)
+		}
+	}
+
+	logrus.Debugf("Request Begin Exec req(%v), msg(%v)", req, msg)
 
 	var (
 		respMsg interface{}
@@ -55,14 +62,18 @@ func (service *remoteServiceImpl) Request(ctx context.Context, req *pb.RequestMs
 		// 重定向信息中，告知目前节点是处于不稳定状态，在这样的状态下，不要再发生路由了
 		// 直接判定是否能执行，不能就返回错误，以避免陷入死循环
 		if req.Redirect.NodeStatus != nodeStatusRunning {
+			logrus.Debugf("Request Redirect(%v) system.redirectFinalWithAsk senderId(%d) targetId(%d) msg(%v)", req.Redirect, senderId, targetId, msg)
 			respMsg, err = system.redirectFinalWithAsk(senderId, targetId, msg)
 		} else {
+			logrus.Debugf("Request Redirect(%v) system.Ask senderId(%d) targetId(%d) msg(%v)", req.Redirect, senderId, targetId, msg)
 			respMsg, err = system.Ask(senderId, targetId, msg)
 		}
 	} else {
 		if req.Redirect.NodeStatus != nodeStatusRunning {
+			logrus.Debugf("Request Redirect(%v) system.redirectFinalWithTell senderId(%d) targetId(%d) msg(%v)", req.Redirect, senderId, targetId, msg)
 			err = system.redirectFinalWithTell(senderId, targetId, msg)
 		} else {
+			logrus.Debugf("Request Redirect(%v) system.Tell...senderId(%d) targetId(%d) msg(%v)", req.Redirect, senderId, targetId, msg)
 			err = system.Tell(senderId, targetId, msg)
 		}
 	}
@@ -98,8 +109,7 @@ func (service *remoteServiceImpl) Request(ctx context.Context, req *pb.RequestMs
 			ReqId:  req.ReqId,
 		}
 	}
-
-	logrus.Debugf("Request respmsg(%v)", resp)
+	logrus.Debugf("Request Execute successfully respmsg(%v)", resp)
 
 	return
 

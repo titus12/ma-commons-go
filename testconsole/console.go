@@ -17,7 +17,8 @@ import (
 // 命令
 type Command struct {
 	Name     string
-	Callback func(message proto.Message)
+	//Callback func(message proto.Message)
+	Callback func(message interface{})
 }
 
 // 控制台
@@ -40,7 +41,7 @@ func ReadLine() (string, error) {
 	return text, nil
 }
 
-func (cons *Console) Command(name string, callback func(message proto.Message)) {
+func (cons *Console) Command(name string, callback func(message interface{})) {
 	command := &Command{
 		Name:     name,
 		Callback: callback,
@@ -65,22 +66,21 @@ func (cons *Console) Run() {
 					fmt.Printf("命令解析错误，LEN != 2\n")
 					break
 				}
+
 				msgtype := fmt.Sprintf("testmsg.%s", command.Name)
 				t := proto.MessageType(msgtype)
-				if t == nil {
-					fmt.Printf("不存在的消息类型, msgtype: %s\n", msgtype)
-					break
+				if t != nil {
+					msg := reflect.New(t.Elem()).Interface()
+					err := json.Unmarshal(utils.StringToBytes(parts[1]), msg)
+					if err != nil {
+						fmt.Printf("命令解析错误, ERR: %v\n", err)
+						break
+					}
+					command.Callback(msg)
+				} else {
+					command.Callback(parts[1])
 				}
-				msg := reflect.New(t.Elem()).Interface()
-
-				err := json.Unmarshal(utils.StringToBytes(parts[1]), msg)
-				if err != nil {
-					fmt.Printf("命令解析错误, ERR: %v\n", err)
-					break
-				}
-
 				found = true
-				command.Callback(msg.(proto.Message))
 				break
 			}
 		}

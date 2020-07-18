@@ -17,7 +17,8 @@ type Pid struct {
 
 func (p *Pid) Ref() *Ref {
 	s := p.System()
-	return s.Ref(p.id)
+	val, _ := s.NewRef(p.id)
+	return val
 }
 
 func (p *Pid) System() *System {
