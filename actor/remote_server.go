@@ -15,7 +15,7 @@ type remoteServiceImpl struct{}
 
 // todo: actor之前接收远程消息的地方，这里的处理担心会陷入死循环....
 func (service *remoteServiceImpl) Request(ctx context.Context, req *pb.RequestMsg) (resp *pb.ResponseMsg, err error) {
-	//todo: defer utils.PrintPanicStack()
+	//todo: 这里考虑要捉恐慌 .... defer utils.PrintPanicStack()
 
 	var senderId, targetId int64
 	var sender, target *Pid

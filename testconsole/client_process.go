@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/pkg/errors"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -47,6 +48,93 @@ func (n *Node) String() string {
 const etcdRoot = "/root/backend/gameser"
 
 
+func QueryRequest(msgstr interface{}) {
+	str, ok := msgstr.(string)
+	if !ok {
+		fmt.Println("不能正常转换成 string 消息")
+		return
+	}
+
+	strarr := strings.Split(str, " ")
+	if len(strarr) != 2 {
+		fmt.Println("命令格式错误, 需要提供二个数字参数")
+		return
+	}
+
+	sActorId, err := strconv.Atoi(strarr[0])
+	if err != nil {
+		fmt.Println("命令格式错误, 第一个参数需要是数字...", strarr[0])
+		return
+	}
+
+	eActorId, err := strconv.Atoi(strarr[1])
+	if err != nil {
+		fmt.Println("命令格式错误, 第二个参数需要是数字...", strarr[1])
+		return
+	}
+
+	if eActorId <= sActorId {
+		fmt.Println("命令格式错误, 第二个参数不能小于等于第一个参数....")
+		return
+	}
+
+	nodes := GetAllNodeData(etcdRoot)
+	if !IsStable(nodes) {
+		fmt.Println("集群不稳定，不能执行，集群所有节点都要在Running状态下")
+		return
+	}
+
+	// nodes 中的所有节点都处在running中
+	ring := utils.NewConsistent()
+	for _, v := range nodes {
+		ring.Add(utils.NewNodeKey(v.Key, 1))
+	}
+
+
+	for id:=sActorId; id<=eActorId; id++ {
+		// 计算出id预期在哪个节点
+		nodeKey, err := ring.Get(fmt.Sprintf("%d", id))
+		var expect string
+		if err != nil {
+			expect = err.Error()
+		} else {
+			expect = nodeKey.Key()
+		}
+
+		printstr := fmt.Sprintf("%d(expect:%s)|", id, expect)
+
+		for _, targetNode := range nodes {
+
+			printstr = fmt.Sprintf("%s{%s", printstr, targetNode.Key)
+
+			ExecGrpcCall(false, targetNode, func(ctx context.Context, cli testmsg.TestConsoleClient) error {
+				queryMsg := &testmsg.QueryMsg{
+					ReqId:                utils.GenUuidWithUint64(),
+					TargetId:             int64(id),
+				}
+
+
+				resp, err1 := cli.QueryMsgRequest(ctx, queryMsg)
+				if err1 != nil {
+					printstr = fmt.Sprintf("%s 失败(%v)", printstr, err1)
+					return nil
+				}
+
+				if targetNode.Key == resp.NodeName {
+					printstr = fmt.Sprintf("%s 存在", printstr)
+				} else {
+					printstr = fmt.Sprintf("%s 不存在", printstr)
+				}
+
+				return nil
+			})
+
+			printstr = fmt.Sprintf("%s}", printstr)
+		}
+		fmt.Println(printstr)
+	}
+}
+
 // 多消息请求
 func MultiMsgRequest(msgstr interface{}) {
 	str, ok := msgstr.(string)
@@ -79,44 +167,65 @@ func MultiMsgRequest(msgstr interface{}) {
 	}
 
 	for id:=sActorId; id<=eActorId; id++ {
-		msg := &testmsg.RunMsg{
-			TargetId:             int64(id),
-		}
-		RunMsgRequest(msg)
+		go func(_id int64) {
+			msg := &testmsg.RunMsg{
+				TargetId: _id,
+			}
+
+			var err error
+
+			// 错误后重试5次，每次间隔1秒，加上本身要执行的一次，所以是6次
+			for i:=0; i<6; i++ {
+				err = execRunMsg(msg)
+				if err == nil {
+					break
+				} else {
+					time.Sleep(time.Second)
+				}
+			}
+
+			if err != nil {
+				fmt.Println(err)
+			}
+		}(int64(id))
 	}
-	
 }
 
-func RunMsgRequest(msg interface{}) {
+func execRunMsg(msg interface{}) error {
 	nodes := GetAllNodeDataWithRunning(etcdRoot)
 	fmt.Println("节点数量:", len(nodes))
 
 	logicMsg, ok := msg.(*testmsg.RunMsg)
 	if !ok {
-		fmt.Println("不能正常转换成 testmsg.RunMsg 消息")
-		return
+		return errors.New("不能正常转换成 testmsg.RunMsg 消息")
 	}
 
 	if logicMsg.TargetId <= 0 {
-		fmt.Println("目标actor不能为空.....TargetId:", logicMsg.TargetId)
-		return
+		return errors.Errorf("目标actor不能为空.....TargetId: %d", logicMsg.TargetId)
 	}
 
 	targetNode := HitNodeWithActor(nodes, logicMsg.TargetId)
 
-	err := ExecGrpcCall(targetNode, func(ctx context.Context, cli testmsg.TestConsoleClient) error {
+	err := ExecGrpcCall(true, targetNode, func(ctx context.Context, cli testmsg.TestConsoleClient) error {
 		logicMsg.ReqId = utils.GenUuidWithUint64()
 
 		resp, err1 := cli.RunMsgRequest(ctx, logicMsg)
 		if err1 == nil {
-			fmt.Println("LocalRunResponse Complete...", resp)
+			fmt.Println("RunMsgResponse Complete...", resp)
 		}
 		return err1
 	})
 
 	if err != nil {
-		fmt.Println("向远程节点调用错误....", err)
-		return
+		return errors.Wrap(err, "向远程节点调用错误....")
+	}
+	return nil
+}
+
+func RunMsgRequest(msg interface{}) {
+	err := execRunMsg(msg)
+	if err != nil {
+		fmt.Println(err)
 	}
 }
 
@@ -161,7 +270,7 @@ func LocalRunPendingRequest(msg interface{}) {
 		return
 	}
 
-	err := ExecGrpcCall(targetNode, func(ctx context.Context, cli testmsg.TestConsoleClient) error {
+	err := ExecGrpcCall(true, targetNode, func(ctx context.Context, cli testmsg.TestConsoleClient) error {
 		logicMsg.ReqId = utils.GenUuidWithUint64()
 
 		// 打印发出去的消息，发到哪个节点，当前节点情况
@@ -212,7 +321,7 @@ func LocalRunRequest(msg interface{}) {
 		}
 	}
 
-	err := ExecGrpcCall(targetNode, func(ctx context.Context, cli testmsg.TestConsoleClient) error {
+	err := ExecGrpcCall(true, targetNode, func(ctx context.Context, cli testmsg.TestConsoleClient) error {
 		logicMsg.ReqId = utils.GenUuidWithUint64()
 
 		// 打印发出去的消息，发到哪个节点，当前节点情况
@@ -399,7 +508,7 @@ func HitNodeWithActor(nodes []*Node, actorId int64) *Node {
 }
 
 // 执行gprc的运行
-func ExecGrpcCall(node *Node, fn func(ctx context.Context, cli testmsg.TestConsoleClient) error) error {
+func ExecGrpcCall(showcalltime bool, node *Node, fn func(ctx context.Context, cli testmsg.TestConsoleClient) error) error {
 	conn, err := grpc.Dial(node.Addr, grpc.WithTimeout(2*time.Second), grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		return err
@@ -411,9 +520,17 @@ func ExecGrpcCall(node *Node, fn func(ctx context.Context, cli testmsg.TestConso
 
 	cli := testmsg.NewTestConsoleClient(conn)
 
-	fmt.Println("GRPC调用开始时间...", time.Now())
+	st := time.Now()
 	err = fn(ctx, cli)
-	fmt.Println("GRPC调用结束时间...", time.Now())
+	et := time.Now()
+
+	if showcalltime {
+		// todo: 打印调用时间长度，发生在错误的时候....
+		if err != nil {
+			fmt.Println("GRPC调用时长...", node.Key, et.Sub(st))
+		}
+	}
+
 	if err != nil {
 		return err
 	}

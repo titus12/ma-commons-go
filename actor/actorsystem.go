@@ -15,6 +15,7 @@ import (
 
 const DefaultQueueSize = 1024                 //默认每个actor的队列长度
 const DefaultRequestTimeout = 10 * time.Second //默认的请求超时时间
+const DefaultWaitTimeout = 10 * time.Second
 
 const (
 	Runnable = iota
@@ -255,6 +256,7 @@ func (system *System) Ids() []int64 {
 }
 
 // 根据id拿到actor的引用
+// 这里会返回空引用, 如果不存在....
 func (system *System) Ref(id int64) *Ref {
 	ref, ok := system.container.Load(id)
 	if ok {
@@ -335,7 +337,7 @@ func workflow(system *System, target int64, net Response, localProcess func(),
 		} else {
 			// todo: 这里是否要加入ref.stop()
 			//ref.Stop()
-			if err := ref.WaitDestroyed(10 * time.Second); err != nil {
+			if err := ref.WaitDestroyed(DefaultWaitTimeout); err != nil {
 				logrus.WithError(err).Errorf("workflow: 等待actor摧毁错误, target: %d", target)
 				errHandler(err)
 			} else {

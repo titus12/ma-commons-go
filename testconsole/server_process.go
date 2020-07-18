@@ -22,6 +22,25 @@ func StartConsoleServer(s *grpc.Server) {
 }
 
 
+// 查询actor是否存在
+func (s *server) QueryMsgRequest(ctx context.Context, request *testmsg.QueryMsg) (*testmsg.QueryMsgResponse, error) {
+	ref := ActorSystem.Ref(request.TargetId)
+
+	resp := &testmsg.QueryMsgResponse{
+		ReplyId:              request.ReqId,
+		TargetId:             request.TargetId,
+	}
+
+	if ref == nil {
+		// 没有找到
+		return resp, nil
+	}
+
+	resp.NodeName = setting.Key
+	return resp, nil
+
+}
+
 func (s *server) RunMsgRequest(ctx context.Context, request *testmsg.RunMsg) (*testmsg.RunMsgResponse, error) {
 	// 追加节点
 	request.NodeKeys = fmt.Sprintf("%s,%s", request.NodeKeys, "console_"+setting.Key)
