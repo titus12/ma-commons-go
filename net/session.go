@@ -18,7 +18,7 @@ type Session struct {
 	//Encoder *rc4.Cipher                 // 加密器
 	//Decoder *rc4.Cipher                 // 解密器
 	CryptoKey []byte        // des 密钥
-	UserId    uint64        // 玩家ID
+	UserId    int64         // 玩家ID
 	Die       chan struct{} // 会话关闭信号
 
 	// 会话标记
