@@ -1,21 +1,15 @@
 package main
 
 import (
-	"github.com/titus12/ma-commons-go/wlog"
-	"runtime"
-
 	"github.com/sirupsen/logrus"
-
 	"github.com/titus12/ma-commons-go/setting"
 	"github.com/titus12/ma-commons-go/testconsole"
-
 	_ "github.com/titus12/ma-commons-go/testconsole/testmsg"
+	"github.com/titus12/ma-commons-go/wlog"
+	"runtime"
 )
 
 func main() {
-
-
-
 	setting.Initialize()
 
 	numCpu := runtime.NumCPU()
