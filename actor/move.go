@@ -144,10 +144,22 @@ func (s *System) move(nodeKey string, nodeStatus int32) error {
 	}
 
 	logrus.Warnf("开始移动actor.... nodeKey: %s, nodeStatus: %d", nodeKey, nodeStatus)
+
+	//if setting.Test {
+	//	if nodeStatus == nodeStatusPending {
+	//		if setting.Key == "g002" {
+	//			time.Sleep(5 * time.Second)
+	//			return errors.New("move simulate err")
+	//		}
+	//	}
+	//}
+
 	ids := s.Ids()
 	if setting.Test {
 		sort.Sort(ItemId(ids))
 	}
+
+	var nonlocalCount int         //非本地计数
 
 	for _, id := range ids {
 		local, nk, ns, _, err := s.cluster.IsLocalWithUnstableRing(id)
@@ -156,14 +168,13 @@ func (s *System) move(nodeKey string, nodeStatus int32) error {
 			return err
 		}
 
-		var nonlocalCount int         //非本地计数
+
 		if !local {
 			logrus.Debugf("move actorid: %d, nk: %s, ns: %d 开始牵移", id, nk, ns)
 			if setting.Test {
 				// todo: 模拟延迟
 				if nonlocalCount >= 13 {
-					logrus.Errorf("move simulate err")
-
+					logrus.Errorf("move simulate err %d", nonlocalCount)
 					return errors.New("move simulate err")
 				}
 

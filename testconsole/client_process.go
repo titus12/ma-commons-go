@@ -56,7 +56,7 @@ func QueryRequest(msgstr interface{}) {
 	}
 
 	strarr := strings.Split(str, " ")
-	if len(strarr) != 3 {
+	if len(strarr) != 2 {
 		fmt.Println("命令格式错误, 需要提供3个参数")
 		return
 	}
@@ -78,7 +78,7 @@ func QueryRequest(msgstr interface{}) {
 		return
 	}
 
-	key := strarr[2]
+	//key := strarr[2]
 
 	nodes := GetAllNodeData(etcdRoot)
 	if !IsStable(nodes) {
@@ -134,9 +134,9 @@ func QueryRequest(msgstr interface{}) {
 						expecterr ++
 					}
 
-					if targetNode.Key == key {
-						pedshow ++
-					}
+					//if targetNode.Key == key {
+					//	pedshow ++
+					//}
 
 					exist ++
 				} else {

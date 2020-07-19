@@ -432,6 +432,7 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 		transfer := service.isCompleted(p.selfNodeName)
 		switch transfer {
 		case TransferStatusFail:
+			log.Debugf("startServer service.isCompleted(%s) transfer(%d)", p.selfNodeName, transfer)
 			node := NewNode(p.selfNodeName, nil, NodeData{p.selfNodeAddr, ServiceStatusStopping}, true, TransferStatusFail)
 			if err := p.stopNode(nodePath, node); err != nil {
 				log.Errorf("startServer updateNode stop %v %v err %v", node.key, StatusServiceName[status], err)
@@ -466,6 +467,8 @@ StartServerDone:
 
 // 停止一个节点
 func (p *servicePool) stopNode(nodePath string, node *node) error {
+
+	log.Debugf("stopNode begin nodePath(%s) node(%v)", nodePath, node)
 	servicePath := getDir(nodePath)
 	if p.namesProvided && !p.knownNames[servicePath] {
 		return nil
@@ -486,12 +489,16 @@ func (p *servicePool) stopNode(nodePath string, node *node) error {
 		}
 	}
 
+	log.Debugf("stopNode the next service.callback(%s,%d)", node.key, node.data.Status)
 	err := service.callback(node.key, node.data.Status)
 	if err != nil {
 		log.Errorf("stopNode callback %v err %v", node.key, err)
 	}
+
+	log.Debugf("stopNode start loop call p.RemoveNodeData(%s)", nodePath)
 	for {
 		if err := p.RemoveNodeData(nodePath); err == nil {
+			log.Debugf("stopNode loop call p.RemoveNodeData(%s) succeed", nodePath)
 			break
 		}
 		time.Sleep(time.Second)
@@ -647,9 +654,8 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 			//sendNode := &gp.Node{Name: key, Status: TransferStatusSucc}
 
 			if err != nil {
-				// todo: 错了后，不用通知吗？
 				sendNode.Status = TransferStatusFail
-				log.Errorf("upsertNode remote callback %v - %v err %v", key, value, err)
+				log.Errorf("upsertNode remote callback %v - %s err %v", key, value, err)
 			}
 			for {
 				service := p.services[servicePath]
@@ -691,6 +697,7 @@ func (p *servicePool) eventOnDestroy(nodeName string) {
 
 // 删除节点
 func (p *servicePool) removeNode(key string) {
+	log.Debugf("removeNode begin key %s", key)
 	// name check
 	nodeName := getFileName(key)
 	servicePath := getDir(key)
