@@ -2,11 +2,12 @@ package actor
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/sirupsen/logrus"
 )
@@ -52,6 +53,35 @@ type Ref struct {
 
 	// ping的取消方法
 	pingCancel CancelFunc
+}
+
+// 异步等待摧毁
+func (ref *Ref) asyncWaitDestroyed(timeout time.Duration) {
+	if atomic.LoadInt32(&ref.status) >= Destroyed {
+		ref.owner.event.OnActorDestroy(ref.id, nil)
+		return
+	}
+
+	var cancel CancelFunc
+	// 开启循环定时器，每秒查看一下状态是否到达条件
+
+	startTime := time.Now() //开始时间
+	cancel = startTimer(time.Second, time.Second, func() {
+		if atomic.LoadInt32(&ref.status) >= Destroyed {
+			if ref.owner.event != nil {
+				ref.owner.event.OnActorDestroy(ref.id, nil)
+			}
+			cancel()
+		} else {
+			interval := time.Now().Sub(startTime)
+			if interval >= timeout {
+				if ref.owner.event != nil {
+					ref.owner.event.OnActorDestroy(ref.id, errors.Errorf("wait actor(%d) destroy timeout", ref.id))
+				}
+				cancel()
+			}
+		}
+	})
 }
 
 // 在规定时间内等待actor直到满足某个条件

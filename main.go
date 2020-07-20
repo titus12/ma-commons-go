@@ -1,12 +1,13 @@
 package main
 
 import (
+	"runtime"
+
 	"github.com/sirupsen/logrus"
 	"github.com/titus12/ma-commons-go/setting"
 	"github.com/titus12/ma-commons-go/testconsole"
 	_ "github.com/titus12/ma-commons-go/testconsole/testmsg"
 	"github.com/titus12/ma-commons-go/wlog"
-	"runtime"
 )
 
 func main() {
@@ -14,7 +15,6 @@ func main() {
 
 	numCpu := runtime.NumCPU()
 	runtime.GOMAXPROCS(numCpu)
-
 
 	if setting.TestConsole {
 		console := testconsole.NewConsole()
@@ -26,6 +26,7 @@ func main() {
 		console.Run()
 	} else {
 		wlog.Initialize(logrus.DebugLevel, wlog.WithELK([]string{"127.0.0.1:9092"}, setting.Key, "game-log"))
+		logrus.Infof("main start %s", setting.Ip)
 		if setting.Test {
 			testconsole.Example()
 		} else {
