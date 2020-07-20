@@ -8,6 +8,7 @@ import (
 	"github.com/titus12/ma-commons-go/actor/pb"
 	"github.com/titus12/ma-commons-go/setting"
 	"github.com/titus12/ma-commons-go/testconsole/testmsg"
+	"github.com/titus12/ma-commons-go/utils"
 	"google.golang.org/grpc"
 )
 
@@ -15,7 +16,7 @@ type remoteServiceImpl struct{}
 
 // todo: actor之前接收远程消息的地方，这里的处理担心会陷入死循环....
 func (service *remoteServiceImpl) Request(ctx context.Context, req *pb.RequestMsg) (resp *pb.ResponseMsg, err error) {
-	//todo: 这里考虑要捉恐慌 .... defer utils.PrintPanicStack()
+	defer utils.PrintPanicStack()
 
 	var senderId, targetId int64
 	var sender, target *Pid

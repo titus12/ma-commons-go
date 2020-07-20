@@ -57,7 +57,7 @@ func QueryRequest(msgstr interface{}) {
 
 	strarr := strings.Split(str, " ")
 	if len(strarr) != 2 {
-		fmt.Println("命令格式错误, 需要提供二个数字参数")
+		fmt.Println("命令格式错误, 需要提供3个参数")
 		return
 	}
 
@@ -78,6 +78,8 @@ func QueryRequest(msgstr interface{}) {
 		return
 	}
 
+	//key := strarr[2]
+
 	nodes := GetAllNodeData(etcdRoot)
 	if !IsStable(nodes) {
 		fmt.Println("集群不稳定，不能执行，集群所有节点都要在Running状态下")
@@ -91,6 +93,8 @@ func QueryRequest(msgstr interface{}) {
 	}
 
 
+
+
 	for id:=sActorId; id<=eActorId; id++ {
 		// 计算出id预期在哪个节点
 		nodeKey, err := ring.Get(fmt.Sprintf("%d", id))
@@ -102,6 +106,9 @@ func QueryRequest(msgstr interface{}) {
 		}
 
 		printstr := fmt.Sprintf("%d(expect:%s)|", id, expect)
+
+
+		var failCount, exist, notexist,expecterr, pedshow int
 
 		for _, targetNode := range nodes {
 
@@ -117,13 +124,24 @@ func QueryRequest(msgstr interface{}) {
 				resp, err1 := cli.QueryMsgRequest(ctx, queryMsg)
 				if err1 != nil {
 					printstr = fmt.Sprintf("%s 失败(%v)", printstr, err1)
+					failCount ++
 					return nil
 				}
 
 				if targetNode.Key == resp.NodeName {
 					printstr = fmt.Sprintf("%s 存在", printstr)
+					if targetNode.Key != expect {
+						expecterr ++
+					}
+
+					//if targetNode.Key == key {
+					//	pedshow ++
+					//}
+
+					exist ++
 				} else {
 					printstr = fmt.Sprintf("%s 不存在", printstr)
+					notexist ++
 				}
 
 				return nil
@@ -131,7 +149,11 @@ func QueryRequest(msgstr interface{}) {
 
 			printstr = fmt.Sprintf("%s}", printstr)
 		}
-		fmt.Println(printstr)
+
+		// 检查所有节点的统计
+		if exist > 1 || notexist >= len(nodes) || failCount > 0 || expecterr> 0 || pedshow > 0{
+			fmt.Println(printstr)
+		}
 	}
 }
 
