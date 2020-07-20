@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-const DefaultQueueSize = 1024                  //默认每个actor的队列长度
+const DefaultQueueSize = 1024                 //默认每个actor的队列长度
 const DefaultRequestTimeout = 10 * time.Second //默认的请求超时时间
 const DefaultWaitTimeout = 10 * time.Second
 
@@ -86,9 +86,6 @@ type System struct {
 
 	// 委托的集群
 	cluster ClusterInfo
-
-	// 事件
-	event Event
 }
 
 // 新建一个actor系统，如果存在相同名字的actor系统，则会抛出panic,这会使得整个进程崩溃
@@ -184,12 +181,6 @@ func WithAddress(grpcServer *grpc.Server) optFunc {
 // 系统选项
 type systemOptFunc func(*System)
 
-func WithEvent(event Event) systemOptFunc {
-	return func(s *System) {
-		s.event = event
-	}
-}
-
 // 设置超时时间，如果不设置，则没有超时事件
 func WithTimeout(otime time.Duration) systemOptFunc {
 	return func(s *System) {
@@ -234,6 +225,7 @@ func (system *System) NewRef(id int64) (*Ref, bool) {
 	if ok {
 		return val.(*Ref), ok
 	}
+
 
 	actorCtx, actorCancel := context.WithCancel(system.ctx)
 	handler := system.builder(id)
@@ -293,8 +285,7 @@ func NewPid(system *System, id int64) *Pid {
 // 3. 内部发送消息（有响应） - 重定向（由gs直接定向到gs) (msg != context)
 
 // 投递消息的工作流程
-// asyncWait：true 表示工作流会异步等待，方法不会阻塞， false: 表示方法会阻塞等级果
-func workflow(system *System, target int64, asyncWait bool, net Response, localProcess func(),
+func workflow(system *System, target int64, net Response, localProcess func(),
 	redirect func(_info *pb.RedirectInfo, _conn *grpc.ClientConn), errHandler func(_err error)) {
 
 	system.mu.RLock()
@@ -345,19 +336,14 @@ func workflow(system *System, target int64, asyncWait bool, net Response, localP
 			redirect(&pb.RedirectInfo{NodeKey: key, NodeStatus: status}, conn)
 		} else {
 			// todo: 这里是否要加入ref.stop()
-			if asyncWait {
-				// 如果需要异步等待
-				ref.asyncWaitDestroyed(DefaultWaitTimeout)
-				redirect(&pb.RedirectInfo{NodeKey: key, NodeStatus: status}, conn)
+			//ref.Stop()
+			if err := ref.WaitDestroyed(DefaultWaitTimeout); err != nil {
+				logrus.WithError(err).Errorf("workflow: 等待actor摧毁错误, target: %d", target)
+				errHandler(err)
 			} else {
-				if err := ref.WaitDestroyed(DefaultWaitTimeout); err != nil {
-					logrus.WithError(err).Errorf("workflow: 等待actor摧毁错误, target: %d", target)
-					errHandler(err)
-				} else {
-					// 重定向
-					logrus.Debugf("workflow UnstableRing(cond ref to stop) actor(%d) redirect to %s[status=%d]", target, key, status)
-					redirect(&pb.RedirectInfo{NodeKey: key, NodeStatus: status}, conn)
-				}
+				// 重定向
+				logrus.Debugf("workflow UnstableRing(cond ref to stop) actor(%d) redirect to %s[status=%d]", target, key, status)
+				redirect(&pb.RedirectInfo{NodeKey: key, NodeStatus: status}, conn)
 			}
 		}
 	}
@@ -383,7 +369,7 @@ func workflow(system *System, target int64, asyncWait bool, net Response, localP
 // nodeKey: 重定向的位置
 // nodeStatus: 重定向所到节点的状态
 func (system *System) TellWithResp(target int64, msg interface{}, net Response) (nodeKey string, nodeStatus int32, err error) {
-	workflow(system, target, true, net, func() {
+	workflow(system, target, net, func() {
 		ctx := newDefaultContext(
 			system.NewPid(NoSenderId),
 			system.NewPid(target),
@@ -413,7 +399,7 @@ func (system *System) Ask(sender, target int64, msg interface{}) (resp interface
 	senderPid := system.NewPid(sender)
 	targetPid := system.NewPid(target)
 
-	workflow(system, target, false, nil, func() {
+	workflow(system, target, nil, func() {
 		proxy := newProxyContext(system, senderPid, targetPid, msg, true, nil, nil)
 		resp, err = proxy.request()
 	}, func(_info *pb.RedirectInfo, _conn *grpc.ClientConn) {
@@ -428,7 +414,7 @@ func (system *System) Ask(sender, target int64, msg interface{}) (resp interface
 // 内部使用的消息投递，消息投递实际上是投递一个Context接口的实现
 func (system *System) tellWithContext(ctx Context) (err error) {
 	target := ctx.Self().id
-	workflow(system, target, false, nil, func() {
+	workflow(system, target, nil, func() {
 		ref, _ := system.NewRef(target)
 		err = ref.pushmsg(ctx)
 	}, func(_info *pb.RedirectInfo, _conn *grpc.ClientConn) {

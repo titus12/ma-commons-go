@@ -46,9 +46,3 @@ type ClusterInfo interface {
 	// 在旧的哈希环中是否在本地
 	IsLocalWithUnstableRing(id int64) (local bool, nodeKey string, nodeStatus int32, conn *grpc.ClientConn, err error)
 }
-
-type Event interface {
-	OnActorDestroyTimeout(actorId int64)
-	OnActorDestroySucceed(actorId int64)
-	OnActorDestroyNoExist(actorId int64)
-}
