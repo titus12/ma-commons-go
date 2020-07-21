@@ -9,6 +9,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
+
+	"github.com/titus12/ma-commons-go/setting"
+
 	etcdclient "github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/clientv3/concurrency"
 	"github.com/coreos/etcd/mvcc/mvccpb"
@@ -369,15 +373,15 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	}
 	defer close()
 
-	log.Debugf("startServer ready lock service serviceName: %s on etcd", p.selfServiceName)
+	log.Infof("startServer ready lock service serviceName: %s on etcd", p.selfServiceName)
 	err = mtx.Lock(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("lock Service err %v", err)
 	}
 
-	log.Debugf("startServer begin lock service serviceName: %s on etcd", p.selfServiceName)
+	log.Infof("startServer begin lock service serviceName: %s on etcd", p.selfServiceName)
 	defer func() {
-		log.Debugf("startServer unlock service serviceName: %s on etcd", p.selfServiceName)
+		log.Infof("startServer unlock service serviceName: %s on etcd", p.selfServiceName)
 		mtx.Unlock(context.Background())
 	}()
 
@@ -886,6 +890,62 @@ func SyncStartService(ctx context.Context, port int, startup func(*grpc.Server, 
 		log.Fatalf("SyncStartService launch failed err: %v", err)
 	}
 	sw.Wait()
+}
+
+func StopNode() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	mtx, close, err := _defaultPool.newMutex(_defaultPool.selfServiceName)
+	if err != nil {
+		log.Errorf("StopNode newMutex Service err %v", err)
+		return err
+	}
+	defer close()
+
+	log.Infof("StopNode ready lock service serviceName: %s on etcd", _defaultPool.selfServiceName)
+	err = mtx.Lock(ctx)
+	if err != nil {
+		log.Errorf("StopNode lock Service err %v", err)
+		return err
+	}
+
+	log.Infof("StopNode begin lock service serviceName: %s on etcd", _defaultPool.selfServiceName)
+	defer func() {
+		log.Infof("StopNode unlock service serviceName: %s on etcd", _defaultPool.selfServiceName)
+		mtx.Unlock(ctx)
+	}()
+
+	servicePath := joinPath(_defaultPool.root, strings.TrimSpace(_defaultPool.selfServiceName))
+	node, err := _defaultPool.getServiceWithId(servicePath, setting.Key)
+	if err != nil {
+		log.Errorf("StopNode _defaultPool.getServiceWithId err %v", err)
+		return err
+	}
+
+	if node.data.Status != ServiceStatusRunning {
+		log.Errorf("StopNode node.Status != Running Can't Stop")
+		return errors.New("Can't Stop")
+	}
+
+	wait := make(chan struct{}, 1)
+	go func() {
+		nodePath := joinPath(servicePath, _defaultPool.selfNodeName)
+		node := NewNode(_defaultPool.selfNodeName, nil, NodeData{_defaultPool.selfNodeAddr, ServiceStatusStopping}, true, TransferStatusFail)
+		if err := _defaultPool.stopNode(nodePath, node); err != nil {
+			log.Errorf("StopNode _defaultPool.stopNode fail nodePath %s node %v err %v", nodePath, node, err)
+			err = errors.New("StopNode _defaultPool.stopNode fail")
+		}
+		wait <- struct{}{}
+	}()
+
+	select {
+	case <-wait:
+	case <-ctx.Done():
+		log.Errorf("StopNode timeout")
+		err = ctx.Err()
+	}
+	return err
 }
 
 func transfer(key string, status int32) error {
