@@ -353,11 +353,11 @@ func (p *servicePool) startClient(ctx context.Context) error {
 }
 
 // 开启一个服务的服务器
-func (p *servicePool) startServer(ctx context.Context, port int, startup func(*grpc.Server, *Service) error) *serverWrapper {
+func (p *servicePool) startServer(ctx context.Context, port int, startup func(*grpc.Server, *Service) error) (*serverWrapper, error) {
 	// TODO: 这里会有问题。下面参数没有具体ip地址，只有端口
 	sw, err := NewServerWrapper(fmt.Sprintf(":%d", port))
 	if err != nil {
-		log.Fatalf("startServer %v err %v", port, err)
+		return nil, fmt.Errorf("listening port %v err %v", port, err)
 	}
 	w, cancel := p.makeWork(256)
 	defer cancel()
@@ -365,14 +365,14 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
 	mtx, close, err := p.newMutex(p.selfServiceName)
 	if err != nil {
-		log.Fatalf("startServer newMutex Service err %v", err)
+		return nil, fmt.Errorf("newMutex Service err %v", err)
 	}
 	defer close()
 
 	log.Debugf("startServer ready lock service serviceName: %s on etcd", p.selfServiceName)
 	err = mtx.Lock(context.Background())
 	if err != nil {
-		log.Fatalf("startServer lock Service err %v", err)
+		return nil, fmt.Errorf("lock Service err %v", err)
 	}
 
 	log.Debugf("startServer begin lock service serviceName: %s on etcd", p.selfServiceName)
@@ -381,19 +381,14 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 		mtx.Unlock(context.Background())
 	}()
 
-	if err != nil {
-		log.Fatalf("startServer lock err:%v", err)
-	}
-
 	go func() {
-		err := p.watcher(servicePath)
-		if err != nil {
-			log.Fatalf("startServer watcher err %v", err)
+		if err := p.watcher(servicePath); err != nil {
+			log.Fatalf("startServer watcher %v err: %v", servicePath, err)
 		}
 	}()
 
 	if err := p.initNodesOfService(servicePath, w); err != nil {
-		log.Fatalf("startServer initNodesOfService err:%v", err)
+		return nil, fmt.Errorf("initNodesOfService err:%v", err)
 	}
 
 	service := p.services[servicePath]
@@ -401,11 +396,11 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 
 	err = w.wait(ctx)
 	if err != nil {
-		log.Fatalf("startServer fail")
+		return nil, fmt.Errorf("initNodesOfService work err:%v", err)
 	}
 	//startup func
 	if err := startup(sw.gServer, service); err != nil {
-		log.Fatalf("startServer startup func err %v", err)
+		return nil, fmt.Errorf("startup func err:%v", err)
 	}
 
 	sw.Start()
@@ -417,11 +412,11 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	nodePath := joinPath(servicePath, p.selfNodeName)
 	node := NewNode(p.selfNodeName, nil, NodeData{p.selfNodeAddr, ServiceStatusPending}, true, TransferStatusSucc)
 	if err := service.addNode(node); err != nil {
-		log.Fatalf("startServer upsertNode %v %v err %v", node.key, StatusServiceName[node.data.Status], err)
+		return nil, fmt.Errorf("upsertNode %v %v err :%v", node.key, StatusServiceName[node.data.Status], err)
 	}
 
 	if err := p.updateNodeData(nodePath, &node.data); err != nil {
-		log.Fatalf("startServer updateNodeData %v %v err %v", nodePath, ServiceStatusPending, err)
+		return nil, fmt.Errorf("updateNodeData %v %v err :%v", nodePath, ServiceStatusPending, err)
 	}
 
 	//loop check to Status ServiceStatusRunning
@@ -462,7 +457,7 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	}
 StartServerDone:
 	log.Infof("startServer node %v startup completed", p.selfNodeName)
-	return sw
+	return sw, nil
 }
 
 // 停止一个节点
@@ -840,7 +835,7 @@ func (p *servicePool) lockDo(serviceName string, f func(string)) error {
 		return err
 	}
 	defer sess.Close()
-	m1 := concurrency.NewMutex(sess, "/lock-"+serviceName)
+	m1 := concurrency.NewMutex(sess, "/root/lock-"+serviceName)
 	err = m1.Lock(context.TODO())
 	if err != nil {
 		return err
@@ -884,7 +879,10 @@ func SyncStartClient(ctx context.Context) error {
 }
 
 func SyncStartService(ctx context.Context, port int, startup func(*grpc.Server, *Service) error) {
-	sw := _defaultPool.startServer(ctx, port, startup)
+	sw, err := _defaultPool.startServer(ctx, port, startup)
+	if err != nil {
+		log.Fatalf("SyncStartService launch failed err: %v", err)
+	}
 	sw.Wait()
 }
 
