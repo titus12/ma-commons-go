@@ -1,6 +1,7 @@
 package net
 
 import (
+	"encoding/binary"
 	log "github.com/sirupsen/logrus"
 	"github.com/titus12/ma-commons-go/utils"
 	"net"
@@ -31,8 +32,9 @@ func (buf *Buffer) start() {
 func (buf *Buffer) RawSend(data []byte) bool {
 	// combine output to reduce syscall.write
 	sz := len(data)
-	data[0] = byte(sz >> 8)
-	data[1] = byte(sz)
+	binary.BigEndian.PutUint16(data, uint16(sz-2))
+	//data[0] = byte(sz >> 8)
+	//data[1] = byte(sz)
 	// write data
 	n, err := buf.conn.Write(data)
 	if err != nil {

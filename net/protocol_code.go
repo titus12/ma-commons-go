@@ -6,64 +6,70 @@ import (
 	"sync"
 )
 
-type ProtocolNumber struct {
+type ProtocolCode struct {
 	names map[string]int16
 	ids   map[int16]string
 	mu    sync.RWMutex
 }
 
-var protocolNumber ProtocolNumber
+var defaultProtocolCode ProtocolCode
 
-func init() {
-	protocolNumber.init()
+func NewProtocolCode(msg ...descriptor.Message) (*ProtocolCode, error) {
+	p := &ProtocolCode{}
+	err := p.load(msg...)
+	return p, err
 }
 
-func (p *ProtocolNumber) init() {
-
-}
-
-func (p *ProtocolNumber) load(msg descriptor.Message) error {
+func (p *ProtocolCode) load(msg ...descriptor.Message) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	names := make(map[string]int16)
-	ids := make(map[int16]string)
-	_, md := descriptor.ForMessage(msg)
-	for i := 0; i < len(md.Field); i++ {
-		v := md.GetField()[i]
-		if _, ok := names[v.GetName()]; ok {
-			return fmt.Errorf("parse protocol number, repeated protocol id %v..", v.GetName())
+	p.names = make(map[string]int16)
+	p.ids = make(map[int16]string)
+	for _, m := range msg {
+		_, md := descriptor.ForMessage(m)
+		for i := 0; i < len(md.Field); i++ {
+			v := md.GetField()[i]
+			if _, ok := p.names[v.GetName()]; ok {
+				return fmt.Errorf("parse protocol code, repeated protocol id %v", v.GetName())
+			}
+			name := v.GetTypeName()[1:]
+			p.names[name] = int16(v.GetNumber())
+			p.ids[int16(v.GetNumber())] = name
 		}
-		names[v.GetName()] = int16(v.GetNumber())
-		ids[int16(v.GetNumber())] = v.GetName()
 	}
-	p.names = names
-	p.ids = ids
 	return nil
 }
 
-func (p *ProtocolNumber) getId(name string) int16 {
+func (p *ProtocolCode) GetId(name string) int16 {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.names[name]
 }
 
-func (p *ProtocolNumber) getName(id int16) string {
+func (p *ProtocolCode) GetName(id int16) string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.ids[id]
 }
 
-func LoadProtocol(msg descriptor.Message) error {
+func (p *ProtocolCode) ReloadProtocol(msg ...descriptor.Message) error {
+	if len(msg) <= 0 {
+		return nil
+	}
+	return p.load(msg...)
+}
+
+func LoadProtocol(msg ...descriptor.Message) error {
 	if msg == nil {
 		return nil
 	}
-	return protocolNumber.load(msg)
+	return defaultProtocolCode.load(msg...)
 }
 
 func GetProtocolId(name string) int16 {
-	return protocolNumber.getId(name)
+	return defaultProtocolCode.GetId(name)
 }
 
 func GetProtocolName(id int16) string {
-	return protocolNumber.getName(id)
+	return defaultProtocolCode.GetName(id)
 }

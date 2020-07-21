@@ -51,17 +51,17 @@ func NewMessageByName(name string) interface{} {
 	return reflect.New(mType.Elem()).Interface()
 }
 
-func Deserialize(hashId, bits int16, data []byte) (interface{}, error) {
-	name := GetProtocolName(hashId)
+func Deserialize(protocolCode int16, bits uint16, data []byte) (interface{}, error) {
+	name := GetProtocolName(protocolCode)
 	if name == "" {
-		return nil, fmt.Errorf("message %v not bind", hashId)
+		return nil, fmt.Errorf("message %v not bind", protocolCode)
 	}
 
 	if (bits & (1 >> COMPRESS_ZLIB)) != 0 {
 		var err error
 		data, err = decompress(data)
 		if err != nil {
-			return nil, fmt.Errorf("message %v bits %v decompress err %v", hashId, bits, err)
+			return nil, fmt.Errorf("bits %v decompress err %v", bits, err)
 		}
 	}
 
@@ -74,15 +74,14 @@ func Deserialize(hashId, bits int16, data []byte) (interface{}, error) {
 
 func Serialize(errorCode int32, message interface{}) ([]byte, error) {
 	name := proto.MessageName(message.(proto.Message))
-	hashId := GetProtocolId(name)
-	if hashId == 0 {
+	protocolCode := GetProtocolId(name)
+	if protocolCode == 0 {
 		return nil, fmt.Errorf("message %v not bind", name)
 	}
-
 	// data
 	data, err := proto.Marshal(message.(proto.Message))
 	if err != nil {
-		return nil, fmt.Errorf("message %v marshal err %v", name, err)
+		return nil, fmt.Errorf("message %v marshal err %v", protocolCode, err)
 	}
 
 	var bits int16
@@ -94,34 +93,14 @@ func Serialize(errorCode int32, message interface{}) ([]byte, error) {
 	}
 
 	if size > MAX_BUFSIZE {
-		return nil, fmt.Errorf("message %v size %v limited", name, size)
+		return nil, fmt.Errorf("message %v size %v limited", protocolCode, size)
 	}
 
 	writer := Writer()
 	writer.WriteU16(0)
-	writer.WriteS16(hashId)
+	writer.WriteS16(protocolCode)
 	writer.WriteS16(bits)
 	writer.WriteS16(int16(errorCode))
 	writer.WriteBinary(data)
 	return writer.Data(), nil
-}
-
-// 客户端封包接口
-func SerializeClient(message interface{}) ([]byte, error) {
-	name := proto.MessageName(message.(proto.Message))
-	hashId := GetProtocolId(name)
-	if hashId == 0 {
-		return nil, fmt.Errorf("message type[%v] not bind", name)
-	}
-	writer := Writer()
-	writer.WriteS16(hashId)
-	writer.WriteS16(int16(0))
-
-	// data
-	data, err := proto.Marshal(message.(proto.Message))
-	if err == nil {
-		writer.WriteBinary(data)
-	}
-
-	return writer.Data(), err
 }
