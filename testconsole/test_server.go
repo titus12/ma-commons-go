@@ -54,9 +54,9 @@ func (p *TestPlayer) OnProcess(ctx actor.Context) {
 
 		// 发送响应
 		ctx.Write(&testmsg.RunMsgResponse{
-			ReplyId:              msg.ReqId,
-			TargetId:             msg.TargetId,
-			NodeKeys:             msg.NodeKeys,
+			ReplyId:  msg.ReqId,
+			TargetId: msg.TargetId,
+			NodeKeys: msg.NodeKeys,
 		})
 	default:
 		logrus.Infof("收到不能处理的消息.....%v", msg)
@@ -90,10 +90,7 @@ func Example() {
 	//ctx, _ := context.WithTimeout(context.Background(), 10*time.Minute)
 
 	// 对于gameser即时服务的服务器也是服务的客户,必须在SyncStartService之前调用，如果存在。
-	err := services.SyncStartClient(context.Background())
-	if err != nil {
-		logrus.WithError(err).Panic("启动失败")
-	}
+	services.SyncStartClient(context.Background())
 
 	// 同步启动服务
 	services.SyncStartService(context.Background(), setting.Port, func(server *grpc.Server, service *services.Service) error {

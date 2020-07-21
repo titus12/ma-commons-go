@@ -4,9 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
-
 	"github.com/titus12/ma-commons-go/actor"
 	"github.com/titus12/ma-commons-go/services"
 	"google.golang.org/grpc"
@@ -65,12 +62,7 @@ func example() {
 	//ctx, _ := context.WithTimeout(context.Background(), 10*time.Minute)
 
 	// 对于gameser即时服务的服务器也是服务的客户,必须在SyncStartService之前调用，如果存在。
-	err := services.SyncStartClient(context.Background())
-	if err != nil {
-		logrus.WithError(err).Panic("启动失败")
-		// 启动失败
-		//os.Exit(1)
-	}
+	services.SyncStartClient(context.Background())
 
 	// 同步启动服务
 	services.SyncStartService(context.Background(), 8888, func(server *grpc.Server, service *services.Service) error {

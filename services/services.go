@@ -874,8 +874,10 @@ func timerStart() {
 /////////////////////////////////////////////////////////////////
 // Wrappers
 
-func SyncStartClient(ctx context.Context) error {
-	return _defaultPool.startClient(ctx)
+func SyncStartClient(ctx context.Context) {
+	if err := _defaultPool.startClient(ctx); err != nil {
+		log.Fatalf("SyncStartClient launch failed err: %v", err)
+	}
 }
 
 func SyncStartService(ctx context.Context, port int, startup func(*grpc.Server, *Service) error) {
