@@ -1,6 +1,9 @@
 package services
 
-import "google.golang.org/grpc"
+import (
+	"context"
+	"google.golang.org/grpc"
+)
 
 // 节点状态
 const (
@@ -37,8 +40,28 @@ type node struct {
 	data     NodeData
 	isLocal  bool
 	transfer int32
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
-func NewNode(name string, conn *grpc.ClientConn, data NodeData, isLocal bool, transfer int32) *node {
-	return &node{name, conn, data, isLocal, transfer}
+type optFn func(n *node)
+
+func withContext() optFn {
+	return func(n *node) {
+		n.ctx, n.cancel = context.WithCancel(context.Background())
+	}
+}
+
+func withClientConn(clientConn *grpc.ClientConn) optFn {
+	return func(n *node) {
+		n.conn = clientConn
+	}
+}
+
+func NewNode(name string, nodeData NodeData, isLocal bool, transfer int32, opts ...optFn) *node {
+	node := &node{key: name, data: nodeData, isLocal: isLocal, transfer: transfer}
+	for _, opt := range opts {
+		opt(node)
+	}
+	return node
 }

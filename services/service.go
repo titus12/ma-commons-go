@@ -293,7 +293,7 @@ func (s *Service) IsLocalWithStableRing(id int64) (local bool, nodeKey string, n
 	if err != nil {
 		return false, "", -1, nil, err
 	}
-	return node.isLocal, node.key, int32(node.data.Status), node.conn, nil
+	return node.isLocal, node.key, node.data.Status, node.conn, nil
 }
 
 func (s *Service) IsLocalWithUnstableRing(id int64) (local bool, nodeKey string, nodeStatus int32, conn *grpc.ClientConn, err error) {
@@ -301,5 +301,5 @@ func (s *Service) IsLocalWithUnstableRing(id int64) (local bool, nodeKey string,
 	if err != nil {
 		return false, "", -1, nil, err
 	}
-	return node.isLocal, node.key, int32(node.data.Status), node.conn, nil
+	return node.isLocal, node.key, node.data.Status, node.conn, nil
 }

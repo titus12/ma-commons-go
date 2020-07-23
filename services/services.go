@@ -410,7 +410,7 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 	p.checkNetFn = sw.checkNet
 
 	nodePath := joinPath(servicePath, p.selfNodeName)
-	node := NewNode(p.selfNodeName, nil, NodeData{p.selfNodeAddr, ServiceStatusPending}, true, TransferStatusSucc)
+	node := NewNode(p.selfNodeName, NodeData{p.selfNodeAddr, ServiceStatusPending}, true, TransferStatusSucc, withContext())
 	if err := service.addNode(node); err != nil {
 		return nil, fmt.Errorf("upsertNode %v %v err :%v", node.key, StatusServiceName[node.data.Status], err)
 	}
@@ -428,14 +428,14 @@ func (p *servicePool) startServer(ctx context.Context, port int, startup func(*g
 		switch transfer {
 		case TransferStatusFail:
 			log.Debugf("startServer service.isCompleted(%s) transfer(%d)", p.selfNodeName, transfer)
-			node := NewNode(p.selfNodeName, nil, NodeData{p.selfNodeAddr, ServiceStatusStopping}, true, TransferStatusFail)
+			node := NewNode(p.selfNodeName, NodeData{p.selfNodeAddr, ServiceStatusStopping}, true, TransferStatusFail)
 			if err := p.stopNode(nodePath, node); err != nil {
 				log.Errorf("startServer updateNode stop %v %v err %v", node.key, StatusServiceName[status], err)
 			}
 			log.Errorf("startServer %v startup failure", p.selfNodeName)
 			os.Exit(0)
 		case TransferStatusSucc:
-			node := NewNode(p.selfNodeName, nil, NodeData{p.selfNodeAddr, ServiceStatusRunning}, true, TransferStatusSucc)
+			node := NewNode(p.selfNodeName, NodeData{p.selfNodeAddr, ServiceStatusRunning}, true, TransferStatusSucc)
 			if err := service.updateNode(node); err != nil {
 				log.Errorf("startServer updateNode running %v %v err %v", node.key, StatusServiceName[status], err)
 			}
@@ -614,7 +614,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 	service := p.services[servicePath]
 	// create Service connection
 	if nodeName == p.selfNodeName {
-		node := NewNode(nodeName, nil, *info, true, TransferStatusSucc)
+		node := NewNode(nodeName, *info, true, TransferStatusSucc, withContext())
 		err = service.upsertNode(node)
 		if err != nil {
 			log.Warnf("upsertNode local %v - %v err %v", key, string(value), err)
@@ -632,7 +632,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 
 		log.Infof("upsertNode grpc connect succeed remote node grpcconn: %v", info)
 
-		node := NewNode(nodeName, conn, *info, false, 0)
+		node := NewNode(nodeName, *info, false, TransferStatusNone, withClientConn(conn), withContext())
 		err = service.upsertNode(node)
 		if err != nil {
 			log.Errorf("upsertNode remote %v - %s err %v", key, value, err)
@@ -892,8 +892,16 @@ func transfer(key string, status int32) error {
 	return _defaultPool.transfer(key, status)
 }
 
-func GetService(serviceName string) *Service {
-	return _defaultPool.services[serviceName]
+func GetService(servicePath string) *Service {
+	return _defaultPool.services[servicePath]
+}
+
+func GetContextWithServiceId(serviceName string, id string) (context.Context, error) {
+	node, err := _defaultPool.getServiceWithId(joinPath(_defaultPool.root, serviceName), id)
+	if err != nil {
+		return nil, err
+	}
+	return node.ctx, nil
 }
 
 func GetServiceWithConsistentHash(serviceName string, key string) (bool, string, NodeData, *grpc.ClientConn, error) {
