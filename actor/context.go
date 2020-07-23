@@ -75,8 +75,9 @@ func newDefaultContext(sender, target *Pid, system *System, msg interface{}, res
 
 type defaultResponse struct{}
 
-func (*defaultResponse) Write(msg interface{}) {
+func (*defaultResponse) Write(msg interface{}) error{
 	logrus.Warn("暂时不支持写入", msg)
+	return nil
 }
 
 // 构建代理actor, 由代理actor向其他actor发出请求
