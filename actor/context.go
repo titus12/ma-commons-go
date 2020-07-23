@@ -18,7 +18,7 @@ import (
 
 // 用于响应的接口，凡实现此接口的用于接收actor的响应
 type Response interface {
-	Write(msg interface{})
+	Write(msg interface{}) error
 }
 
 type Context interface {
@@ -146,11 +146,13 @@ func (proxy *proxyContext) Msg() interface{} {
 	return proxy.reqMsg
 }
 
-func (proxy *proxyContext) Write(msg interface{}) {
+func (proxy *proxyContext) Write(msg interface{}) error {
 	//防止多次写操作，使其阻塞
 	if atomic.CompareAndSwapInt32(&proxy.status, 0, 1) {
 		proxy.respcha <- msg
 	}
+
+	return nil
 }
 
 //// 等待消息,如果超时会返回错误
