@@ -45,7 +45,7 @@ type ProcessMsgFunc func(self *Ref)
 type Handler interface {
 	OnStarted(ref *Ref) //actor创建后触发
 	OnDestroy(ref *Ref) //acotr摧毁前触发
-	OnOutTime(ref *Ref) //actor超时后触发，超时后立即会触发OnDestroy
+	OnTimeout(ref *Ref) //actor超时后触发，超时后立即会触发OnDestroy
 
 	// 如果常驻actor会每隔20秒收到一次ping
 	OnPing(ref *Ref, pingCount int64)

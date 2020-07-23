@@ -25,7 +25,7 @@ func (p *Player) OnDestroy(ref *actor.Ref) {
 	// todo: 玩家最后离开保存数据
 }
 
-func (p *Player) OnOutTime(ref *actor.Ref) {
+func (p *Player) OnTimeout(ref *actor.Ref) {
 	// todo: 玩家超时，如 5 分钟没有进行操作, 超时后必然会进入OnDestroy
 }
 

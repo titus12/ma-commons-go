@@ -30,7 +30,7 @@ func (p *TestPlayer) OnDestroy(ref *actor.Ref) {
 	// todo: 玩家最后离开保存数据(打印日志)
 }
 
-func (p *TestPlayer) OnOutTime(ref *actor.Ref) {
+func (p *TestPlayer) OnTimeout(ref *actor.Ref) {
 	// todo: 玩家超时，如 5 分钟没有进行操作, 超时后必然会进入OnDestroy(打印日志)
 }
 

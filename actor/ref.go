@@ -285,7 +285,7 @@ func processSystemMessage(ref *Ref, msg interface{}) {
 		// 执行outtime时可能发生问题，但发生问题后，还是要继续发送stop
 		func() {
 			defer printPanicStack()
-			ref.handler.OnOutTime(ref)
+			ref.handler.OnTimeout(ref)
 		}()
 		err := ref.stop()
 		if err != nil {
