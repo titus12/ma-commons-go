@@ -6,10 +6,11 @@ import (
 )
 
 const (
-	SESS_KEYEXCG    = 0x1 // 是否已经交换完毕KEY
-	SESS_ENCRYPT    = 0x2 // 是否可以开始加密
-	SESS_KICKED_OUT = 0x4 // 踢掉
-	SESS_AUTHORIZED = 0x8 // 已授权访问
+	SESS_KEYEXCG    = 0x1  // 是否已经交换完毕KEY
+	SESS_ENCRYPT    = 0x2  // 是否可以开始加密
+	SESS_KICKED_OUT = 0x4  // 踢掉
+	SESS_AUTHORIZED = 0x8  // 已授权访问
+	SESS_REDIRECT   = 0x16 // 重定向
 )
 
 type Session struct {

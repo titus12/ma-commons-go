@@ -28,7 +28,7 @@ import (
 const (
 	DefaultTimeout    = 10 * time.Second
 	DefaultRetries    = 1440 // failed connection retries (for every ten seconds)
-	DefaultLeaseTTL   = 5
+	DefaultLeaseTTL   = 30   //5
 	DefaultNetRetries = 5
 )
 
@@ -640,7 +640,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 		err = service.upsertNode(node)
 		if err != nil {
 			log.Errorf("upsertNode remote %v - %s err %v", key, value, err)
-			return false
+			return true
 		}
 		log.Infof("upsertNode remote %s - %s", key, value)
 		if node.data.Status == ServiceStatusPending {
