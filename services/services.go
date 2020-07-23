@@ -931,7 +931,7 @@ func StopNode() error {
 	wait := make(chan struct{}, 1)
 	go func() {
 		nodePath := joinPath(servicePath, _defaultPool.selfNodeName)
-		node := NewNode(_defaultPool.selfNodeName, nil, NodeData{_defaultPool.selfNodeAddr, ServiceStatusStopping}, true, TransferStatusFail)
+		node := NewNode(_defaultPool.selfNodeName, NodeData{_defaultPool.selfNodeAddr, ServiceStatusStopping}, true, TransferStatusFail)
 		if err := _defaultPool.stopNode(nodePath, node); err != nil {
 			log.Errorf("StopNode _defaultPool.stopNode fail nodePath %s node %v err %v", nodePath, node, err)
 			err = errors.New("StopNode _defaultPool.stopNode fail")
