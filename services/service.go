@@ -197,6 +197,7 @@ func (s *Service) delNode(key string) {
 			s.stableConsistent.Remove(key)
 			s.unstableConsistent.Remove(key)
 			s.nodes = append(s.nodes[:k], s.nodes[k+1:]...)
+			v.cancel()
 			v.conn.Close()
 			log.Infof("delNode service removed: %v", key)
 			return
