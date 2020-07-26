@@ -26,9 +26,10 @@ import (
 )
 
 const (
-	DefaultTimeout  = 10 * time.Second
-	DefaultRetries  = 1440 // failed connection retries (for every ten seconds)
-	DefaultLeaseTTL = 10   //5
+	DefaultTimeout    = 10 * time.Second
+	DefaultRetries    = 1440 // failed connection retries (for every ten seconds)
+	DefaultLeaseTTL   = 10   //5
+	DefaultNetRetries = 5
 )
 
 const (
