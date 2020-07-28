@@ -1,11 +1,9 @@
 syntax = "proto3";
 package proto;
 
-import "common.proto";
-
 message Node {
 	string name  = 1;
-        int32 status = 2; 
+    int32 status = 2;
 }
 
 message Result {

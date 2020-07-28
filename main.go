@@ -10,18 +10,6 @@ import (
 )
 
 func main() {
-
-	//arr1 := utils.GenUuidWithByteArray16()
-	//key := utils.GenUuidWithByteArray16()
-	//
-	//
-	//arr := XorEncode(arr1, key)
-	//
-	//arr2 := XorDecode(arr, key)
-	//
-	//fmt.Println(arr2)
-
-
 	setting.Initialize()
 
 	numCpu := runtime.NumCPU()

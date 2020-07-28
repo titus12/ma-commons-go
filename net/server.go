@@ -58,7 +58,7 @@ func NewServerHandler(cfg *Config, connectionHandler ConnectionHandler) *serverH
 }
 
 type NetSession struct {
-	*Session
+	*Session   // todo: 这里可以不是指针
 	conn        net.Conn
 	closeStatus int32
 	in          chan []byte
@@ -150,20 +150,22 @@ func (serverHandler *serverHandler) ConnectionActive(connection net.Conn) {
 
 	log.WithFields(sess.LogFields()).Info("new connection")
 
-	// create a write buffer
+	// create a write buffer， 每个连接会按排一个专门写的goroutine
 	go func() {
 		defer sess.closeConn()
 		sess.out.start()
 	}()
 	// start agent for PACKET processing
 	SigAdd()
+
+	// 这里启动的goroutine是为了处理消息的?不论来自客户端的，还是gameser的
 	go func() {
 		defer utils.PrintPanicStack()
 		defer SigDone() // will decrease waitGroup by one, useful for manual server shutdown
 		serverHandler.connHandler(sess)
 	}()
 
-	// read loop
+	// read loop 读取网络来的消息，并递交给session的输入通道
 	for {
 		// solve dead link problem:
 		// physical disconnection without any communication between client and server
@@ -199,6 +201,7 @@ func (serverHandler *serverHandler) ConnectionActive(connection net.Conn) {
 		}
 	}
 }
+
 
 func (serverHandler *serverHandler) StartTcpServer() error {
 	config := serverHandler.config
