@@ -101,7 +101,7 @@ func (p *ProtoHash) Save(key string) (err error, desc string) {
 			continue
 		}
 
-		err = p.SaveField(name)
+		err = p.SaveField(key, name, ov.Type().Field(i))
 		if err != nil {
 			desc += fmt.Sprintf("%v save err %v;", key, err)
 			// 保存其他字段
@@ -182,7 +182,7 @@ func (p *ProtoHash) LoadFields(key string, names ...string) (err error) {
 
 func (p *ProtoHash) SaveField(key string, name string, fv interface{}) (err error) {
 	var value string
-	value, err = p.format(fv)
+	value, err = p.format(reflect.ValueOf(fv))
 	if err != nil {
 		return
 	}
