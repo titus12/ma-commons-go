@@ -232,20 +232,6 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 		p.knownNames[servicePath] = true
 		p.services[servicePath] = newService(v)
 	}
-
-	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
-	if p.services[servicePath] == nil {
-		nodePath := joinPath(servicePath, p.selfNodeName)
-		go func() {
-			err := p.watcher(nodePath)
-			if err != nil {
-				log.Fatalf("startClient watcher err %v", err)
-			}
-		}()
-		if err := p.updateNodeDataWithoutService(nodePath, &NodeData{p.selfNodeAddr, ServiceStatusRunning}); err != nil {
-			log.Fatalf("startClient updateNodeData %v %v err %v", nodePath, ServiceStatusRunning, err)
-		}
-	}
 }
 
 // 工作
@@ -333,10 +319,24 @@ func (p *servicePool) makeWork(queueSize int) (*work, func()) {
 
 // 开启一个服务的代理客户端，本身不做为服务
 func (p *servicePool) startClient(ctx context.Context) error {
+	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
+
+	if p.services[servicePath] == nil {
+		nodePath := joinPath(servicePath, p.selfNodeName)
+		go func() {
+			err := p.watcher(nodePath)
+			if err != nil {
+				log.Fatalf("startClient watcher err %v", err)
+			}
+		}()
+		if err := p.updateNodeDataWithoutService(nodePath, &NodeData{p.selfNodeAddr, ServiceStatusRunning}); err != nil {
+			log.Fatalf("startClient updateNodeData %v %v err %v", nodePath, ServiceStatusRunning, err)
+		}
+	}
+
 	w, cancel := p.makeWork(1024)
 	defer cancel()
-
-	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
+	//servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
 	for k, _ := range p.services {
 		if k == servicePath {
 			continue
