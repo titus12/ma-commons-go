@@ -9,17 +9,26 @@ import (
 )
 
 var (
-	_default_redis *db.ClusterClient
+	_default_redis db.Cmdable
 )
 
 func InitRedis(hosts []string, pass string, poolSize int) {
-	log.Infof("redis hosts %v, pass %v", hosts, pass)
-	client := db.NewClusterClient(&db.ClusterOptions{
-		Addrs:    hosts,
-		Password: pass,
-		PoolSize: poolSize,
-	})
+	log.Infof("redis cluster hosts %v, pass %v", hosts, pass)
+	var client db.Cmdable
+	if len(hosts) <= 1 {
+		client = db.NewClient(&db.Options{
+			Addr:     hosts[0],
+			Password: pass,
+			PoolSize: poolSize,
+		})
 
+	} else {
+		client = db.NewClusterClient(&db.ClusterOptions{
+			Addrs:    hosts,
+			Password: pass,
+			PoolSize: poolSize,
+		})
+	}
 	pong, err := client.Ping().Result()
 	if err != nil {
 		log.Errorf("Connect to redis servers failed: %v", err)
@@ -30,7 +39,7 @@ func InitRedis(hosts []string, pass string, poolSize int) {
 	_default_redis = client
 }
 
-func getRedis() *db.ClusterClient {
+func getRedis() db.Cmdable {
 	return _default_redis
 }
 
@@ -40,6 +49,7 @@ func IsNilReply(err error) bool {
 
 func RedisSet(key string, data interface{}, expiration time.Duration) (err error) {
 	client := getRedis()
+	//client := getRedis()
 	if client == nil {
 		err = errors.New("redis service unavailable")
 		return
