@@ -242,7 +242,7 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 				log.Fatalf("startClient watcher err %v", err)
 			}
 		}()
-		if err := p.updateNodeData(nodePath, &NodeData{p.selfNodeAddr, ServiceStatusRunning}); err != nil {
+		if err := p.updateNodeDataWithoutService(nodePath, &NodeData{p.selfNodeAddr, ServiceStatusRunning}); err != nil {
 			log.Fatalf("startClient updateNodeData %v %v err %v", nodePath, ServiceStatusRunning, err)
 		}
 	}
@@ -717,6 +717,10 @@ func (p *servicePool) updateNodeData(nodePath string, nodeData *NodeData) error 
 	if p.namesProvided && !p.knownNames[servicePath] {
 		return nil
 	}
+	return p.updateNodeDataWithoutService(nodePath, nodeData)
+}
+
+func (p *servicePool) updateNodeDataWithoutService(nodePath string, nodeData *NodeData) error {
 	data, err := json.Marshal(nodeData)
 	if err != nil {
 		return fmt.Errorf("updateNodeData NodeData Marshal value:%v, err:%v", data, err)
