@@ -643,7 +643,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 			return true
 		}
 		log.Infof("upsertNode remote %s - %s", key, value)
-		if node.data.Status == ServiceStatusPending {
+		if node.data.Status == ServiceStatusPending && service.name == p.selfServiceName {
 			// todo: callback里给的也是远程节点的信息，这里是要给当前节点的，还是远程的?
 			err := service.callback(nodeName, node.data.Status)
 

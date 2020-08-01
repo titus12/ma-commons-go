@@ -2,7 +2,6 @@ package data
 
 import (
 	"fmt"
-	"github.com/golang/protobuf/proto"
 )
 
 type ACCESS_MODE int8
@@ -23,26 +22,29 @@ type GCollection interface {
 type GCacheElement struct {
 	cache *GCache
 	key   GCacheKey
-	data  GCacheData
+	old   GCacheComponent
+	new   GCacheComponent
 }
 
-func (g *GCacheElement) Get() (GCacheData, error) {
-	if g.data == nil {
-		return nil, nil
+func newGCacheElement(cache *GCache, key GCacheKey, data GCacheComponent) (*GCacheElement, error) {
+	element := &GCacheElement{cache: cache, key: key, old: data}
+	clone, err := element.old.Clone()
+	if err != nil {
+		return nil, err
 	}
-	msg, ok := g.data.(proto.Message)
-	if !ok {
-		return nil, fmt.Errorf("cast proto.message errors")
-	}
-	clone := proto.Clone(msg).(GCacheData)
-	return clone, nil
+	element.new = clone
+	return element, nil
+}
+
+func (g *GCacheElement) GetComponent() GCacheComponent {
+	return g.new
 }
 
 func (g *GCacheElement) GetCollection(mode ACCESS_MODE) (GCollection, error) {
-	if g.data == nil {
+	if g.old == nil {
 		return nil, nil
 	}
-	col, ok := g.data.(GCollection)
+	col, ok := g.old.(GCollection)
 	if !ok {
 		return nil, fmt.Errorf("cast gcollection errors")
 	}

@@ -12,12 +12,12 @@ var (
 	_default_redis *db.ClusterClient
 )
 
-func InitRedis(hosts []string, pass string, poolsize int) {
+func InitRedis(hosts []string, pass string, poolSize int) {
 	log.Infof("redis hosts %v, pass %v", hosts, pass)
 	client := db.NewClusterClient(&db.ClusterOptions{
 		Addrs:    hosts,
 		Password: pass,
-		PoolSize: poolsize,
+		PoolSize: poolSize,
 	})
 
 	pong, err := client.Ping().Result()
@@ -80,6 +80,17 @@ func RedisHGet(hKey, key string) (value string, err error) {
 	}
 
 	value, err = client.HGet(hKey, key).Result()
+	return
+}
+
+func RedisHMGet(hKey string, keys ...string) (values []interface{}, err error) {
+	client := getRedis()
+	if client == nil {
+		err = errors.New("redis service unavailable")
+		return
+	}
+
+	values, err = client.HMGet(hKey, keys...).Result()
 	return
 }
 

@@ -101,6 +101,8 @@ func (s *Service) upsertNode(node *node) error {
 		}
 		if node.data.Addr != s.nodes[idx].data.Addr {
 			s.nodes[idx].conn = node.conn
+		} else if node.conn != nil {
+			node.conn.Close()
 		}
 		//node.transfer = s.nodes[idx].transfer
 		s.nodes[idx].data = node.data
