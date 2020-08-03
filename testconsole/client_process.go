@@ -45,7 +45,7 @@ func (n *Node) String() string {
 	return "{key:" + n.Key + ",status:" + strconv.Itoa(int(n.Status)) + "}"
 }
 
-const etcdRoot = "/root/backend/gameser"
+var EtcdRoot = "/root/backend/gameser"
 
 
 func QueryRequest(msgstr interface{}) {
@@ -80,7 +80,7 @@ func QueryRequest(msgstr interface{}) {
 
 	//key := strarr[2]
 
-	nodes := GetAllNodeData(etcdRoot)
+	nodes := GetAllNodeData(EtcdRoot)
 	if !IsStable(nodes) {
 		fmt.Println("集群不稳定，不能执行，集群所有节点都要在Running状态下")
 		return
@@ -214,7 +214,7 @@ func MultiMsgRequest(msgstr interface{}) {
 }
 
 func execRunMsg(msg interface{}) error {
-	nodes := GetAllNodeDataWithRunning(etcdRoot)
+	nodes := GetAllNodeDataWithRunning(EtcdRoot)
 	fmt.Println("节点数量:", len(nodes))
 
 	logicMsg, ok := msg.(*testmsg.RunMsg)
@@ -257,7 +257,7 @@ func RunMsgRequest(msg interface{}) {
 // 1.确保node_key在集群中是running状态
 // 2.确保集群当前一定是超过1个以上的节点，并且有一个节点是处于Pending状态下
 func LocalRunPendingRequest(msg interface{}) {
-	nodes := GetAllNodeData(etcdRoot)
+	nodes := GetAllNodeData(EtcdRoot)
 	fmt.Println("节点数量:", len(nodes))
 
 	if !MustOnePendingNode(nodes) {
@@ -311,7 +311,7 @@ func LocalRunPendingRequest(msg interface{}) {
 
 func LocalRunRequest(msg interface{}) {
 	// 拿到所有节点
-	nodes := GetAllNodeData(etcdRoot)
+	nodes := GetAllNodeData(EtcdRoot)
 	if len(nodes) <= 0 {
 		fmt.Println("集群中不存在节点....至少需要一个节点....")
 		return
