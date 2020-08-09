@@ -134,5 +134,8 @@ func RedisHash(hKey string) (hash map[string]string, err error) {
 	}
 
 	hash, err = client.HGetAll(hKey).Result()
+	if err == nil && len(hash) == 0 {
+		return nil, db.Nil
+	}
 	return
 }

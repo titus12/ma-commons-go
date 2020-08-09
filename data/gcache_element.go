@@ -20,14 +20,15 @@ type GCollection interface {
 }
 
 type GCacheElement struct {
-	cache *GCache
-	key   GCacheKey
-	old   GCacheComponent
-	new   GCacheComponent
+	gCache *GCache
+	key    GCacheKey
+	cmpMap map[string]GCacheComponent
+	old    GCacheComponent
+	new    GCacheComponent
 }
 
-func newGCacheElement(cache *GCache, key GCacheKey, data GCacheComponent) (*GCacheElement, error) {
-	element := &GCacheElement{cache: cache, key: key, old: data}
+func newGCacheElement(cache *GCache, cmpMap map[string]GCacheComponent, key GCacheKey, data GCacheComponent) (*GCacheElement, error) {
+	element := &GCacheElement{gCache: cache, cmpMap: cmpMap, key: key, old: data}
 	clone, err := element.old.Clone()
 	if err != nil {
 		return nil, err

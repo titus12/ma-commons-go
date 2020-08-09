@@ -5,7 +5,8 @@ import (
 )
 
 type GCacheComponentData struct {
-	Value interface{}
+	key   string
+	value interface{}
 }
 
 func NewGCacheComponentData() *GCacheComponentData {
@@ -13,25 +14,27 @@ func NewGCacheComponentData() *GCacheComponentData {
 }
 
 func (c *GCacheComponentData) Init(key string, value interface{}) {
-	c.Value = value
+	c.key = key
+	c.value = value
 }
 
-func (c *GCacheComponentData) GetValue() interface{} {
-	return c.Value
+func (c *GCacheComponentData) GetValue() (string, interface{}) {
+	return c.key, c.value
 }
 
 func (c *GCacheComponentData) Clone() (GCacheComponent, error) {
 	clone := &GCacheComponentData{}
-	if m, ok := c.Value.(proto.Message); ok {
-		clone.Value = proto.Clone(m)
+	if m, ok := c.value.(proto.Message); ok {
+		clone.value = proto.Clone(m)
 	} else {
-		clone.Value = c.Value
+		clone.value = c.value
 	}
+	clone.key = c.key
 	return clone, nil
 }
 
 type GCacheComponent interface {
 	Init(key string, value interface{})
-	GetValue() interface{}
+	GetValue() (string, interface{})
 	Clone() (GCacheComponent, error)
 }

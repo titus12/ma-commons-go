@@ -14,22 +14,29 @@ func NewGCacheTransaction() *GCacheTransaction {
 
 func (t *GCacheTransaction) Commit(elements []*GCacheElement) (err error) {
 	var rollback bool
-	update := make([]*GCacheElement, 0, len(elements))
+	update := make(map[string][]*GCacheElement)
 	for _, elem := range elements {
-		if elem.cache == nil {
+		if elem.gCache == nil {
 			continue
 		}
-		if err = elem.cache.setElements(elem); err == nil {
-			update = append(update, elem)
+		key := elem.gCache.name + elem.key.GetPrimary()
+		if _, ok := update[key]; ok {
+			update[key] = append(update[key], elem)
 		} else {
+			update[key] = []*GCacheElement{elem}
+		}
+	}
+
+	for _, v := range update {
+		if err = v[0].gCache.setElements(v); err != nil {
 			rollback = true
 			break
 		}
 	}
 	//
 	if rollback {
-		for _, elem := range update {
-			if rErr := elem.cache.setElements(elem); rErr != nil {
+		for _, v := range update {
+			if rErr := v[0].gCache.rollback(v); rErr != nil {
 				log.Errorf("rollback err: %v", rErr)
 				break
 			}
