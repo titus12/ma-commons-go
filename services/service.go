@@ -20,8 +20,6 @@ var (
 )
 
 // 服务，一个服务下管理多个节点，这此节点为这个服务提供一致的服务，可以认为一服务是提供同一类型服务的集群
-
-// bug: 改成大小的，包外可以访问类型(已改）
 type Service struct {
 	name               string //服务名
 	serviceType        serviceType
@@ -101,6 +99,8 @@ func (s *Service) upsertNode(node *node) error {
 		}
 		if node.data.Addr != s.nodes[idx].data.Addr {
 			s.nodes[idx].conn = node.conn
+		} else if node.conn != nil {
+			node.conn.Close()
 		}
 		//node.transfer = s.nodes[idx].transfer
 		s.nodes[idx].data = node.data
@@ -143,7 +143,10 @@ func (s *Service) updateNode(node *node) error {
 	if err != nil {
 		return err
 	}
-	s.nodes[idx] = node
+	s.nodes[idx].conn = node.conn
+	s.nodes[idx].isLocal = node.isLocal
+	s.nodes[idx].data = node.data
+	s.nodes[idx].transfer = node.transfer
 	return nil
 }
 
@@ -194,11 +197,17 @@ func (s *Service) delNode(key string) {
 	defer s.mu.Unlock()
 	for k, v := range s.nodes {
 		if v.key == key { // deletion
-			s.stableConsistent.Remove(key)
-			s.unstableConsistent.Remove(key)
+			if s.stableConsistent != nil {
+				s.stableConsistent.Remove(key)
+			}
+			if s.unstableConsistent != nil {
+				s.unstableConsistent.Remove(key)
+			}
 			s.nodes = append(s.nodes[:k], s.nodes[k+1:]...)
 			v.cancel()
-			v.conn.Close()
+			if v.conn != nil {
+				v.conn.Close()
+			}
 			log.Infof("delNode service removed: %v", key)
 			return
 		}
