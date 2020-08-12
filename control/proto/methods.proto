@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package control;
+
+message Request {
+    string nodeKey = 1;
+    string addr = 2;
+}
+
+message Response {
+    string nodeKey = 1;
+    string errInfo = 2;
+}
+
+service ControlService {
+    // 关闭节点
+    rpc StopNode(Request) returns (Response) {}
+}

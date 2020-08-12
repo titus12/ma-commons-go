@@ -7,12 +7,22 @@ import (
 )
 
 var (
-	Test        bool   // 启动测试节点
-	TestConsole bool   //启动测试控制台
-	Ip          string //填写本机ip
-	Port        int    //端口
+	Test        bool // 启动测试节点
+	TestConsole bool //启动测试控制台
+
+	Ip   string //填写本机ip
+	Port int    //端口
 
 	Key string //服务器key,nodename
+
+	EtcdHosts []string
+
+	// 服务名称
+	ServiceName string
+
+	EtcdRoot string
+
+//var EtcdRoot = "/root/backend/gameser"
 )
 
 func init() {

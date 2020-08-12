@@ -516,7 +516,7 @@ func (p *servicePool) transfer(key string, status int32) error {
 	return nil
 }
 
-// 监控etcd，监控一个服务的事件发生
+// 监控etcd，监控一个服务的事件发生events
 func (p *servicePool) watcher(servicePath string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -643,7 +643,7 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 			return true
 		}
 		log.Infof("upsertNode remote %s - %s", key, value)
-		if node.data.Status == ServiceStatusPending && service.name == p.selfServiceName{
+		if node.data.Status == ServiceStatusPending && service.name == p.selfServiceName {
 			// todo: callback里给的也是远程节点的信息，这里是要给当前节点的，还是远程的?
 			err := service.callback(nodeName, node.data.Status)
 
