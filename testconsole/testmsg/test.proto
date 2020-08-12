@@ -54,6 +54,7 @@ message QueryMsgResponse {
 
 
 service TestConsole {
+
     // 控制台发出消息，让节点在本地执行，不需要actor有响应，但控制台消息本身需要有响应
     rpc LocalRunRequest(LocalRun) returns (LocalRunResponse);
 
