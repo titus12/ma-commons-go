@@ -145,8 +145,7 @@ type servicePool struct {
 	checkNetFn func() bool
 }
 
-func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfServiceName,
-	selfNodeName, selfNodeAddr string) {
+func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfServiceName, selfNodeName, selfNodeAddr string) {
 	// init etcd node
 	cfg := etcdclient.Config{
 		Endpoints:   etcdHosts,
@@ -175,7 +174,7 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 		log.Fatalf("servicePool.init etcd access failed, nodePath %s err %v", nodePath, err)
 	}
 	if len(gResp.Kvs) > 0 {
-		log.Fatalf("servicePool.init the self node exists in the etcd, nodePath %s err %v", nodePath, err)
+		log.Fatalf("servicePool.init the self node exists in the etcd, nodePath %s", nodePath, err)
 	}
 	// 建立本节点的租约
 	ctxfunc.Timeout(DefaultLeaseTTL*time.Second, func(ctx context.Context) {
@@ -219,21 +218,34 @@ func (p *servicePool) init(root string, etcdHosts, serviceNames []string, selfSe
 	}
 
 	go leaseListenFn()
-
-	// init services
+	// init
 	p.services = make(map[string]*Service)
 	p.knownNames = make(map[string]bool)
 
 	if len(serviceNames) > 0 {
 		p.namesProvided = true
 	}
+
+	log.Infof("servicePool.init all Service serviceNames:%v", serviceNames)
 	for _, v := range serviceNames {
 		servicePath := joinPath(p.root, strings.TrimSpace(v))
 		p.knownNames[servicePath] = true
 		p.services[servicePath] = newService(v)
 	}
 
-	log.Infof("servicePool.init all Service serviceNames:%v", serviceNames)
+	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
+	if p.services[servicePath] == nil {
+		nodePath := joinPath(servicePath, p.selfNodeName)
+		go func() {
+			err := p.watcher(nodePath)
+			if err != nil {
+				log.Fatalf("startClient watcher err %v", err)
+			}
+		}()
+		if err := p.updateNodeData(nodePath, &NodeData{p.selfNodeAddr, ServiceStatusRunning}); err != nil {
+			log.Fatalf("startClient updateNodeData %v %v err %v", nodePath, ServiceStatusRunning, err)
+		}
+	}
 }
 
 // 工作
@@ -321,24 +333,10 @@ func (p *servicePool) makeWork(queueSize int) (*work, func()) {
 
 // 开启一个服务的代理客户端，本身不做为服务
 func (p *servicePool) startClient(ctx context.Context) error {
-	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
-
-	if p.services[servicePath] == nil {
-		nodePath := joinPath(servicePath, p.selfNodeName)
-		go func() {
-			err := p.watcher(nodePath)
-			if err != nil {
-				log.Fatalf("startClient watcher err %v", err)
-			}
-		}()
-		if err := p.updateNodeDataWithoutService(nodePath, &NodeData{p.selfNodeAddr, ServiceStatusRunning}); err != nil {
-			log.Fatalf("startClient updateNodeData %v %v err %v", nodePath, ServiceStatusRunning, err)
-		}
-	}
-
 	w, cancel := p.makeWork(1024)
 	defer cancel()
-	//servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
+
+	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
 	for k, _ := range p.services {
 		if k == servicePath {
 			continue
@@ -356,35 +354,6 @@ func (p *servicePool) startClient(ctx context.Context) error {
 	}
 	w.start()
 	return w.wait(ctx)
-}
-
-func (p *servicePool) startSimpleServer(ctx context.Context, port int, startup func(*grpc.Server, *Service) error) (*serverWrapper, error) {
-	sw, err := NewServerWrapper(fmt.Sprintf(":%d", port))
-	if err != nil {
-		return nil, fmt.Errorf("listening port %v err %v", port, err)
-	}
-	servicePath := joinPath(p.root, strings.TrimSpace(p.selfServiceName))
-	service := p.services[servicePath]
-	go func() {
-		err := p.watcher(servicePath)
-		if err != nil {
-			log.Fatalf("startSimpleServer watcher err %v", err)
-		}
-	}()
-	//startup func
-	if err := startup(sw.gServer, service); err != nil {
-		return nil, fmt.Errorf("startup func err:%v", err)
-	}
-
-	sw.Start()
-	time.Sleep(DefaultLeaseTTL * time.Second)
-	p.checkNetFn = sw.checkNet
-
-	nodePath := joinPath(servicePath, p.selfNodeName)
-	if err := p.updateNodeDataWithoutService(nodePath, &NodeData{p.selfNodeAddr, ServiceStatusRunning}); err != nil {
-		log.Fatalf("startSimpleServer updateNodeData %v %v err %v", nodePath, ServiceStatusRunning, err)
-	}
-	return sw, nil
 }
 
 // 开启一个服务的服务器
@@ -497,6 +466,7 @@ StartServerDone:
 
 // 停止一个节点
 func (p *servicePool) stopNode(nodePath string, node *node) error {
+
 	log.Debugf("stopNode begin nodePath(%s) node(%v)", nodePath, node)
 	servicePath := getDir(nodePath)
 	if p.namesProvided && !p.knownNames[servicePath] {
@@ -519,11 +489,9 @@ func (p *servicePool) stopNode(nodePath string, node *node) error {
 	}
 
 	log.Debugf("stopNode the next service.callback(%s,%d)", node.key, node.data.Status)
-	if service.callback != nil {
-		err := service.callback(node.key, node.data.Status)
-		if err != nil {
-			log.Errorf("stopNode callback %v err %v", node.key, err)
-		}
+	err := service.callback(node.key, node.data.Status)
+	if err != nil {
+		log.Errorf("stopNode callback %v err %v", node.key, err)
 	}
 
 	log.Debugf("stopNode start loop call p.RemoveNodeData(%s)", nodePath)
@@ -675,12 +643,10 @@ func (p *servicePool) upsertNode(key string, value []byte) bool {
 			return true
 		}
 		log.Infof("upsertNode remote %s - %s", key, value)
-		if node.data.Status == ServiceStatusPending && service.name == p.selfServiceName {
+		if node.data.Status == ServiceStatusPending {
 			// todo: callback里给的也是远程节点的信息，这里是要给当前节点的，还是远程的?
-			var err error
-			if service.callback != nil {
-				err = service.callback(nodeName, node.data.Status)
-			}
+			err := service.callback(nodeName, node.data.Status)
+
 			//todo: 没改之前的代码 sendNode := &gp.Node{Name: key, Status: TransferStatusSucc}
 			selfNodePath := joinPath(servicePath, p.selfNodeName)
 			sendNode := &gp.Node{Name: selfNodePath, Status: TransferStatusSucc}
@@ -751,10 +717,6 @@ func (p *servicePool) updateNodeData(nodePath string, nodeData *NodeData) error 
 	if p.namesProvided && !p.knownNames[servicePath] {
 		return nil
 	}
-	return p.updateNodeDataWithoutService(nodePath, nodeData)
-}
-
-func (p *servicePool) updateNodeDataWithoutService(nodePath string, nodeData *NodeData) error {
 	data, err := json.Marshal(nodeData)
 	if err != nil {
 		return fmt.Errorf("updateNodeData NodeData Marshal value:%v, err:%v", data, err)
@@ -926,14 +888,6 @@ func SyncStartService(ctx context.Context, port int, startup func(*grpc.Server, 
 	sw, err := _defaultPool.startServer(ctx, port, startup)
 	if err != nil {
 		log.Fatalf("SyncStartService launch failed err: %v", err)
-	}
-	sw.Wait()
-}
-
-func SyncStartSimpleService(ctx context.Context, port int, startup func(*grpc.Server, *Service) error) {
-	sw, err := _defaultPool.startSimpleServer(ctx, port, startup)
-	if err != nil {
-		log.Fatalf("SyncStartSingleService launch failed err: %v", err)
 	}
 	sw.Wait()
 }
