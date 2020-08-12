@@ -9,26 +9,17 @@ import (
 )
 
 var (
-	_default_redis db.Cmdable
+	_default_redis *db.ClusterClient
 )
 
-func InitRedis(hosts []string, pass string, poolSize int) {
-	log.Infof("redis cluster hosts %v, pass %v", hosts, pass)
-	var client db.Cmdable
-	if len(hosts) <= 1 {
-		client = db.NewClient(&db.Options{
-			Addr:     hosts[0],
-			Password: pass,
-			PoolSize: poolSize,
-		})
+func InitRedis(hosts []string, pass string, poolsize int) {
+	log.Infof("redis hosts %v, pass %v", hosts, pass)
+	client := db.NewClusterClient(&db.ClusterOptions{
+		Addrs:    hosts,
+		Password: pass,
+		PoolSize: poolsize,
+	})
 
-	} else {
-		client = db.NewClusterClient(&db.ClusterOptions{
-			Addrs:    hosts,
-			Password: pass,
-			PoolSize: poolSize,
-		})
-	}
 	pong, err := client.Ping().Result()
 	if err != nil {
 		log.Errorf("Connect to redis servers failed: %v", err)
@@ -39,7 +30,7 @@ func InitRedis(hosts []string, pass string, poolSize int) {
 	_default_redis = client
 }
 
-func getRedis() db.Cmdable {
+func getRedis() *db.ClusterClient {
 	return _default_redis
 }
 
@@ -49,7 +40,6 @@ func IsNilReply(err error) bool {
 
 func RedisSet(key string, data interface{}, expiration time.Duration) (err error) {
 	client := getRedis()
-	//client := getRedis()
 	if client == nil {
 		err = errors.New("redis service unavailable")
 		return
@@ -93,17 +83,6 @@ func RedisHGet(hKey, key string) (value string, err error) {
 	return
 }
 
-func RedisHMGet(hKey string, keys ...string) (values []interface{}, err error) {
-	client := getRedis()
-	if client == nil {
-		err = errors.New("redis service unavailable")
-		return
-	}
-
-	values, err = client.HMGet(hKey, keys...).Result()
-	return
-}
-
 func RedisSetNX(key string, data interface{}, expiration time.Duration) (succ bool, err error) {
 	client := getRedis()
 	if client == nil {
@@ -134,8 +113,5 @@ func RedisHash(hKey string) (hash map[string]string, err error) {
 	}
 
 	hash, err = client.HGetAll(hKey).Result()
-	if err == nil && len(hash) == 0 {
-		return nil, db.Nil
-	}
 	return
 }
